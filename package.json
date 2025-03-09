@@ -1,16 +1,16 @@
 {
   "name": "@ivotoby/openapi-mcp-server",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "An MCP server that exposes OpenAPI endpoints as resources",
   "license": "MIT",
   "type": "module",
   "main": "./dist/bundle.js",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com:ivo-toby/contentful-mcp.git"
+    "url": "git+https://github.com:ivo-toby/mcp-openapi-server.git"
   },
   "bin": {
-    "mcp-server-contentful": "./bin/mcp-server.js"
+    "mcp-oopenapi-server": "./bin/mcp-server.js"
   },
   "files": [
     "dist"
@@ -23,16 +23,33 @@
     "typecheck": "tsc --noEmit",
     "prepare": "npm run build",
     "dev": "nodemon --watch src -e ts --exec 'npm run build'",
+    "postrefactor": "npm run build",
     "inspect": "node -r dotenv/config ./scripts/inspect.js",
-    "inspect-watch": "node ./scripts/inspect-watch.js"
+    "inspect-watch": "node ./scripts/inspect-watch.js",
+    "test": "vitest run --config vitest.config.ts",
+    "test:watch": "vitest watch --config vitest.config.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^0.4.0",
-    "axios": "^1.6.2",
+    "@modelcontextprotocol/sdk": "^1.6.1",
+    "axios": "^1.8.2",
     "openapi-types": "^12.1.3",
     "yargs": "^17.7.2"
   },
   "devDependencies": {
+    "@semantic-release/commit-analyzer": "^11.1.0",
+    "@semantic-release/github": "^9.2.6",
+    "@semantic-release/npm": "^11.0.3",
+    "@semantic-release/release-notes-generator": "^12.1.0",
+    "@types/chai": "^4.3.11",
+    "@types/mocha": "^10.0.6",
+    "@types/sinon": "^17.0.3",
+    "chai": "^5.0.0",
+    "mocha": "^10.2.0",
+    "msw": "^2.7.0",
+    "semantic-release": "^22.0.12",
+    "sinon": "^17.0.1",
+    "ts-node": "^10.9.2",
+    "vitest": "^2.1.8",
     "@types/jest": "^29.5.10",
     "@types/node": "^20.10.0",
     "@typescript-eslint/eslint-plugin": "^6.12.0",
