@@ -9,7 +9,7 @@ import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import {
   ListToolsRequestSchema,
-  CallToolRequestSchema, // Changed from ExecuteToolRequestSchema
+  CallToolRequestSchema, 
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 
@@ -59,11 +59,11 @@ function loadConfig(): OpenAPIMCPServerConfig {
       type: "string",
       description: "Server version",
     })
-    .help().argv;
+    .help().argv as any;
 
   // Combine CLI args and env vars, with CLI taking precedence
-  const apiBaseUrl = argv["api-base-url"] || process.env.API_BASE_URL;
-  const openApiSpec = argv["openapi-spec"] || process.env.OPENAPI_SPEC_PATH;
+  const apiBaseUrl = (argv["api-base-url"] as string) || process.env.API_BASE_URL;
+  const openApiSpec = (argv["openapi-spec"] as string) || process.env.OPENAPI_SPEC_PATH;
 
   if (!apiBaseUrl) {
     throw new Error(
@@ -76,11 +76,11 @@ function loadConfig(): OpenAPIMCPServerConfig {
     );
   }
 
-  const headers = parseHeaders(argv.headers || process.env.API_HEADERS);
+  const headers = parseHeaders(argv.headers as string || process.env.API_HEADERS);
 
   return {
-    name: argv.name || process.env.SERVER_NAME || "mcp-openapi-server",
-    version: argv.version || process.env.SERVER_VERSION || "1.0.0",
+    name: argv.name as string || process.env.SERVER_NAME || "mcp-openapi-server",
+    version: argv.version as string || process.env.SERVER_VERSION || "1.0.0",
     apiBaseUrl,
     openApiSpec,
     headers,
@@ -90,6 +90,7 @@ function loadConfig(): OpenAPIMCPServerConfig {
 class OpenAPIMCPServer {
   private server: Server;
   private config: OpenAPIMCPServerConfig;
+  private openApiSpec!: OpenAPIV3.Document;
 
   private tools: Map<string, Tool> = new Map();
 
@@ -99,6 +100,12 @@ class OpenAPIMCPServer {
       name: config.name,
       version: config.version,
     });
+    this.server.onerror = (err) => {
+      console.error("Server error:", err);
+    };
+    this.server.onclose = () => {
+      console.error("Server closed");
+    };
 
     this.initializeHandlers();
   }
@@ -119,10 +126,13 @@ class OpenAPIMCPServer {
   }
 
   private async parseOpenAPISpec(): Promise<void> {
-    const spec = await this.loadOpenAPISpec();
+    this.openApiSpec = await this.loadOpenAPISpec();
+    
+    // Add a debugger statement for debugging
+    debugger;
 
     // Convert each OpenAPI path to an MCP tool
-    for (const [path, pathItem] of Object.entries(spec.paths)) {
+    for (const [path, pathItem] of Object.entries(this.openApiSpec.paths)) {
       if (!pathItem) continue;
 
       for (const [method, operation] of Object.entries(pathItem)) {
@@ -143,8 +153,9 @@ class OpenAPIMCPServer {
             op.description ||
             `Make a ${method.toUpperCase()} request to ${path}`,
           inputSchema: {
-            type: "object",
+            type: "object" as const,
             properties: {},
+            required: [] as string[],
             // Add any additional properties from OpenAPI spec
           },
         };
@@ -157,13 +168,22 @@ class OpenAPIMCPServer {
           for (const param of op.parameters) {
             if ("name" in param && "in" in param) {
               const paramSchema = param.schema as OpenAPIV3.SchemaObject;
+              
+              // Ensure properties object exists
+              if (!tool.inputSchema.properties) {
+                tool.inputSchema.properties = {};
+              }
+              
               tool.inputSchema.properties[param.name] = {
                 type: paramSchema.type || "string",
                 description: param.description || `${param.name} parameter`,
               };
+              
               if (param.required) {
-                tool.inputSchema.required = tool.inputSchema.required || [];
-                tool.inputSchema.required.push(param.name);
+                if (!tool.inputSchema.required) {
+                  tool.inputSchema.required = [];
+                }
+                (tool.inputSchema.required as string[]).push(param.name);
               }
             }
           }
@@ -183,29 +203,63 @@ class OpenAPIMCPServer {
 
     // Handle tool execution
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { id, name, arguments: params } = request.params;
+      const { params } = request;
+      
+      // 提取参数
+      console.error("Received request:", params);
+      
+      // 支持通过 id 或 name 调用工具
+      const id = params.id as string | undefined;
+      const name = params.name as string | undefined;
+      const arguments_ = params.arguments || {};
+      
+      console.error(`Using parameters from arguments:`, arguments_);
+      
+      try {
+        // 调用工具
+        const result = await this.callTool(id, name, arguments_);
+        return result;
+      } catch (error) {
+        console.error("Error executing tool:", error);
+        throw error;
+      }
+    });
+  }
 
-      console.error("Received request:", request.params);
-      console.error("Using parameters from arguments:", params);
+  private async callTool(id: string | undefined, name: string | undefined, params: Record<string, any>): Promise<any> {
+    // Find tool by ID or name
+    let tool: Tool | undefined;
+    let toolId: string | undefined;
 
-      // Find tool by ID or name
-      let tool: Tool | undefined;
-      let toolId: string | undefined;
+    // 添加调试信息
+    console.error(`Looking for tool with ${id ? 'ID: ' + id : 'name: ' + name}`);
+    console.error(`Total tools available: ${this.tools.size}`);
 
+    try {
       if (id) {
-        toolId = id.trim();
-        tool = this.tools.get(toolId);
+        toolId = String(id).trim();
+        tool = toolId ? this.tools.get(toolId) : undefined;
+        console.error(`Tool lookup by ID ${toolId}: ${tool ? 'found' : 'not found'}`);
       } else if (name) {
         // Search for tool by name
-        for (const [tid, t] of this.tools.entries()) {
+        console.error(`Searching for tool by name: ${name}`);
+        // 使用Array.from而不是迭代器，避免可能的无限循环
+        const toolEntries = Array.from(this.tools.entries());
+        for (const [tid, t] of toolEntries) {
+          console.error(`Checking tool: ${tid} (${t.name})`);
           if (t.name === name) {
             tool = t;
             toolId = tid;
+            console.error(`Found matching tool: ${toolId}`);
             break;
           }
         }
+        
+        if (!tool) {
+          console.error(`No tool found with name: ${name}`);
+        }
       }
-
+      
       if (!tool || !toolId) {
         console.error(
           `Available tools: ${Array.from(this.tools.entries())
@@ -220,23 +274,109 @@ class OpenAPIMCPServer {
       try {
         // Extract method and path from tool ID
         const [method, ...pathParts] = toolId.split("-");
-        const path = "/" + pathParts.join("/").replace(/-/g, "/");
+        
+        // 获取原始路径，需要将 - 替换回 /，但要处理连续的破折号问题
+        // 先过滤掉空字符串，避免连续破折号导致的空字符串元素
+        const filteredPathParts = pathParts.filter(part => part !== "");
+        let originalPath = "/" + filteredPathParts.join("/").replace(/-/g, "/");
+        
+        // 首先，从OpenAPI规范中查找原始路径
+        let apiPath = "";
+        
+        // 添加调试信息
+        console.error(`Looking for path matching tool ID: ${toolId} or name: ${tool.name}`);
+        console.error(`Available paths: ${Object.keys(this.openApiSpec.paths || {}).join(", ")}`);
+        
+        // 遍历OpenAPI规范中的所有路径
+        for (const [path, pathItem] of Object.entries(this.openApiSpec.paths || {})) {
+          if (!pathItem) continue;
+          
+          for (const [pathMethod, operation] of Object.entries(pathItem)) {
+            if (pathMethod === "parameters" || !operation) continue;
+            
+            const op = operation as OpenAPIV3.OperationObject;
+            
+            // 打印调试信息
+            console.error(`Checking path: ${path}, method: ${pathMethod}, operationId: ${op.operationId}`);
+            
+            // 检查操作ID是否匹配工具名称
+            if (op.operationId && op.operationId === tool.name) {
+              apiPath = path;
+              console.error(`Found matching operationId: ${op.operationId} at path: ${path}`);
+              break;
+            }
+            
+            // 如果操作ID不匹配，检查工具ID是否匹配
+            const cleanPath = path.replace(/^\//, "");
+            const currentToolId = `${pathMethod.toUpperCase()}-${cleanPath}`.replace(
+              /[^a-zA-Z0-9-]/g,
+              "-",
+            );
+            
+            console.error(`Generated toolId: ${currentToolId} for path: ${path}`);
+            
+            if (currentToolId === toolId) {
+              apiPath = path;
+              console.error(`Found matching toolId: ${currentToolId} at path: ${path}`);
+              break;
+            }
+          }
+          if (apiPath) break;
+        }
+        
+        if (!apiPath) {
+          console.error(`Could not find original API path for tool: ${toolId}`);
+          apiPath = originalPath; // 回退到原始路径
+        } else {
+          console.error(`Using API path: ${apiPath} for tool: ${toolId}`);
+        }
+        
+        // Create a mutable copy of params
+        let mutableParams = params ? { ...params } : {};
 
         // Ensure base URL ends with slash for proper joining
         const baseUrl = this.config.apiBaseUrl.endsWith("/")
           ? this.config.apiBaseUrl
           : `${this.config.apiBaseUrl}/`;
 
+        // Handle path parameters (e.g., /tasks/{taskId}/start)
+        let processedPath = apiPath;
+        const pathParamRegex = /\{([^}]+)\}/g;
+        
+        // 打印路径参数替换前的信息
+        console.error(`Path before parameter replacement: ${processedPath}`);
+        console.error(`Available parameters:`, mutableParams);
+        
+        // Replace all path parameters with actual values from params
+        processedPath = processedPath.replace(pathParamRegex, (match, paramName) => {
+          if (mutableParams && mutableParams[paramName] !== undefined) {
+            // Remove used path parameter from the params object
+            const paramValue = mutableParams[paramName];
+            delete mutableParams[paramName];
+            
+            console.error(`Replacing path parameter {${paramName}} with value: ${paramValue}`);
+            
+            // Return the encoded parameter value
+            return encodeURIComponent(String(paramValue));
+          } else {
+            console.error(`Path parameter ${paramName} not provided in request`);
+            throw new Error(`Missing required path parameter: ${paramName}`);
+          }
+        });
+        
+        // 打印路径参数替换后的信息
+        console.error(`Path after parameter replacement: ${processedPath}`);
+        
         // Remove leading slash from path to avoid double slashes
-        const cleanPath = path.startsWith("/") ? path.slice(1) : path;
+        const cleanPath = processedPath.startsWith("/") ? processedPath.slice(1) : processedPath;
 
         // Construct the full URL
         const url = new URL(cleanPath, baseUrl).toString();
 
-        //console.error(`Making API request: ${method.toLowerCase()} ${url}`);
+        console.error(`Making API request: ${method.toLowerCase()} ${url}`);
         //console.error(`Base URL: ${baseUrl}`);
         //console.error(`Path: ${cleanPath}`);
-        //console.error(`Raw parameters:`, params);
+        //console.error(`Raw parameters:`, mutableParams);
         //console.error(`Request headers:`, this.config.headers);
 
         // Prepare request configuration
@@ -249,10 +389,10 @@ class OpenAPIMCPServer {
         // Handle different parameter types based on HTTP method
         if (method.toLowerCase() === "get") {
           // For GET requests, ensure parameters are properly structured
-          if (params && typeof params === "object") {
+          if (mutableParams && Object.keys(mutableParams).length > 0) {
             // Handle array parameters properly
             const queryParams: Record<string, string> = {};
-            for (const [key, value] of Object.entries(params)) {
+            for (const [key, value] of Object.entries(mutableParams)) {
               if (Array.isArray(value)) {
                 // Join array values with commas for query params
                 queryParams[key] = value.join(",");
@@ -265,7 +405,7 @@ class OpenAPIMCPServer {
           }
         } else {
           // For POST, PUT, PATCH - send as body
-          config.data = params;
+          config.data = mutableParams;
         }
 
         console.error(`Processed parameters:`, config.params || config.data);
@@ -273,7 +413,11 @@ class OpenAPIMCPServer {
         console.error("Final request config:", config);
 
         try {
-          const response = await axios(config);
+          // 添加超时设置
+          const response = await axios({
+            ...config,
+            timeout: 10000 // 10秒超时
+          });
           console.error("Response status:", response.status);
           console.error("Response headers:", response.headers);
           console.error("Response data:", response.data);
@@ -290,11 +434,23 @@ class OpenAPIMCPServer {
               statusText: error.response?.statusText,
               data: error.response?.data,
               headers: error.response?.headers,
+              message: error.message,
+              code: error.code
             });
-            throw new Error(
-              `API request failed: ${error.message} - ${JSON.stringify(error.response?.data)}`,
-            );
+            
+            // 构建详细的错误信息
+            let errorMessage = `API request failed: ${error.message}`;
+            if (error.response?.data) {
+              errorMessage += ` - ${JSON.stringify(error.response.data)}`;
+            } else if (error.code === 'ECONNABORTED') {
+              errorMessage = 'API request timed out after 10 seconds';
+            } else if (error.code) {
+              errorMessage += ` (${error.code})`;
+            }
+            
+            throw new Error(errorMessage);
           }
+          console.error("Unknown error:", error);
           throw error;
         }
 
@@ -304,7 +460,11 @@ class OpenAPIMCPServer {
         }
         throw error;
       }
-    });
+
+    } catch (error) {
+      console.error("Error executing tool:", error);
+      throw error;
+    }
   }
 
   async start(): Promise<void> {
