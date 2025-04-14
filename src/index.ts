@@ -135,10 +135,12 @@ class OpenAPIMCPServer {
           /[^a-zA-Z0-9-]/g,
           "-",
         );
+        const name = (op.operationId || op.summary || `${method.toUpperCase()} ${path}`)
+          .replace(/[^a-zA-Z0-9-]/g, "-");
+
         console.error(`Registering tool: ${toolId}`); // Debug logging
         const tool: Tool = {
-          name:
-            op.operationId || op.summary || `${method.toUpperCase()} ${path}`,
+          name,
           description:
             op.description ||
             `Make a ${method.toUpperCase()} request to ${path}`,
