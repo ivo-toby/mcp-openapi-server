@@ -7,6 +7,10 @@ export interface OpenAPIMCPServerConfig {
   apiBaseUrl: string
   openApiSpec: string
   headers?: Record<string, string>
+  transportType: "stdio" | "http"
+  httpPort?: number
+  httpHost?: string
+  endpointPath?: string
 }
 
 /**
@@ -28,6 +32,25 @@ export function parseHeaders(headerStr?: string): Record<string, string> {
  */
 export function loadConfig(): OpenAPIMCPServerConfig {
   const argv = yargs(hideBin(process.argv))
+    .option("transport", {
+      alias: "t",
+      type: "string",
+      choices: ["stdio", "http"],
+      description: "Transport type to use (stdio or http)",
+    })
+    .option("port", {
+      alias: "p",
+      type: "number",
+      description: "HTTP port for HTTP transport",
+    })
+    .option("host", {
+      type: "string",
+      description: "HTTP host for HTTP transport",
+    })
+    .option("path", {
+      type: "string",
+      description: "HTTP endpoint path for HTTP transport",
+    })
     .option("api-base-url", {
       alias: "u",
       type: "string",
@@ -53,7 +76,21 @@ export function loadConfig(): OpenAPIMCPServerConfig {
       type: "string",
       description: "Server version",
     })
-    .help().argv
+    .help()
+    .parseSync()
+
+  // Transport configuration
+  // Determine transport type, ensuring only 'stdio' or 'http'
+  let transportType: "stdio" | "http"
+  if (argv.transport === "http" || process.env.TRANSPORT_TYPE === "http") {
+    transportType = "http"
+  } else {
+    transportType = "stdio"
+  }
+
+  const httpPort = argv.port ?? (process.env.HTTP_PORT ? parseInt(process.env.HTTP_PORT, 10) : 3000)
+  const httpHost = argv.host || process.env.HTTP_HOST || "127.0.0.1"
+  const endpointPath = argv.path || process.env.ENDPOINT_PATH || "/mcp"
 
   // Combine CLI args and env vars, with CLI taking precedence
   const apiBaseUrl = argv["api-base-url"] || process.env.API_BASE_URL
@@ -74,5 +111,9 @@ export function loadConfig(): OpenAPIMCPServerConfig {
     apiBaseUrl,
     openApiSpec,
     headers,
+    transportType,
+    httpPort,
+    httpHost,
+    endpointPath,
   }
 }

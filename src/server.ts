@@ -1,5 +1,5 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js"
-import { ServerTransport } from "@modelcontextprotocol/sdk/server/transport.js"
+import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
 import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js"
 import { OpenAPIMCPServerConfig } from "./config"
 import { ToolsManager } from "./tools-manager"
@@ -13,7 +13,7 @@ export class OpenAPIServer {
   private toolsManager: ToolsManager
   private apiClient: ApiClient
 
-  constructor(private config: OpenAPIMCPServerConfig) {
+  constructor(config: OpenAPIMCPServerConfig) {
     this.server = new Server(
       { name: config.name, version: config.version },
       {
@@ -34,7 +34,7 @@ export class OpenAPIServer {
     // Handle tool listing
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       return {
-        tools: this.toolsManager.getAllTools(),
+        tools: this.toolsManager.getAllTools() as any,
       }
     })
 
@@ -46,7 +46,7 @@ export class OpenAPIServer {
       console.error("Using parameters from arguments:", params)
 
       // Find tool by ID or name
-      const idOrName = id || name
+      const idOrName = typeof id === "string" ? id : typeof name === "string" ? name : ""
       if (!idOrName) {
         throw new Error("Tool ID or name is required")
       }
@@ -96,7 +96,7 @@ export class OpenAPIServer {
   /**
    * Start the server with the given transport
    */
-  async start(transport: ServerTransport): Promise<void> {
+  async start(transport: Transport): Promise<void> {
     await this.toolsManager.initialize()
     await this.server.connect(transport)
   }

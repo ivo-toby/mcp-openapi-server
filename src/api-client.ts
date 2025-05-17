@@ -13,7 +13,7 @@ export class ApiClient {
    * @param headers - Optional headers to include with every request
    */
   constructor(
-    private baseUrl: string,
+    baseUrl: string,
     private headers: Record<string, string> = {},
   ) {
     this.axiosInstance = axios.create({

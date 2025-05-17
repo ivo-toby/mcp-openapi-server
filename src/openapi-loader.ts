@@ -56,21 +56,27 @@ export class OpenAPISpecLoader {
 
         // Add parameters from operation
         if (op.parameters) {
+          const requiredParams: string[] = []
+
           for (const param of op.parameters) {
             if ("name" in param && "in" in param) {
               const paramSchema = param.schema as OpenAPIV3.SchemaObject
-              tool.inputSchema.properties[param.name] = {
-                type: paramSchema.type || "string",
-                description: param.description || `${param.name} parameter`,
-              }
-              // Handle required parameters
-              if (param.required === true) {
-                if (!tool.inputSchema.required) {
-                  tool.inputSchema.required = []
+              if (tool.inputSchema && tool.inputSchema.properties) {
+                tool.inputSchema.properties[param.name] = {
+                  type: paramSchema.type || "string",
+                  description: param.description || `${param.name} parameter`,
                 }
-                tool.inputSchema.required.push(param.name)
+              }
+              // Add required parameters to our temporary array
+              if (param.required === true) {
+                requiredParams.push(param.name)
               }
             }
+          }
+
+          // Only add the required array if there are required parameters
+          if (requiredParams.length > 0 && tool.inputSchema) {
+            tool.inputSchema.required = requiredParams
           }
         }
         tools.set(toolId, tool)

@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
+import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
 import { OpenAPIServer } from "./server"
 import { loadConfig } from "./config"
+import { StreamableHttpServerTransport } from "./transport/StreamableHttpServerTransport"
 
 /**
  * Main entry point
@@ -13,10 +15,23 @@ async function main(): Promise<void> {
 
     const server = new OpenAPIServer(config)
 
-    const transport = new StdioServerTransport()
-    await server.start(transport)
-
-    console.error("OpenAPI MCP Server running on stdio")
+    // Choose transport based on config
+    let transport: Transport
+    if (config.transportType === "http") {
+      transport = new StreamableHttpServerTransport(
+        config.httpPort!,
+        config.httpHost,
+        config.endpointPath,
+      )
+      await server.start(transport)
+      console.error(
+        `OpenAPI MCP Server running on http://${config.httpHost}:${config.httpPort}${config.endpointPath}`,
+      )
+    } else {
+      transport = new StdioServerTransport()
+      await server.start(transport)
+      console.error("OpenAPI MCP Server running on stdio")
+    }
   } catch (error) {
     console.error("Failed to start server:", error)
     process.exit(1)
@@ -32,3 +47,4 @@ export * from "./api-client"
 export * from "./config"
 export * from "./tools-manager"
 export * from "./openapi-loader"
+export * from "./transport/StreamableHttpServerTransport"

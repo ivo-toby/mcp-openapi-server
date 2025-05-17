@@ -8,12 +8,15 @@ vi.mock("../src/tools-manager")
 vi.mock("../src/api-client")
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js"
+import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
 
-// Create a dummy interface instead of importing the missing module
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-interface ServerTransport {
-  // Minimal interface needed for tests
+// Create a dummy interface that implements the Transport interface
+interface ServerTransport extends Transport {
+  start(): Promise<void>
+  send(message: any): Promise<void>
+  close(): Promise<void>
 }
+
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js"
 import { ToolsManager } from "../src/tools-manager"
 import { ApiClient } from "../src/api-client"
@@ -25,6 +28,10 @@ const config: OpenAPIMCPServerConfig = {
   apiBaseUrl: "http://localhost",
   openApiSpec: "spec.yaml",
   headers: { Authorization: "Bearer token" },
+  transportType: "stdio",
+  httpPort: 3000,
+  httpHost: "127.0.0.1",
+  endpointPath: "/mcp",
 }
 
 describe("OpenAPIServer", () => {
@@ -137,7 +144,11 @@ describe("OpenAPIServer", () => {
     vi.mocked(mockToolsManager.initialize).mockResolvedValue(undefined)
     vi.mocked(mockServer.connect).mockResolvedValue(undefined)
 
-    const transport = {} as ServerTransport
+    const transport = {
+      start: vi.fn().mockResolvedValue(undefined),
+      send: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+    } as ServerTransport
 
     await expect(server.start(transport)).resolves.toBeUndefined()
     expect(mockToolsManager.initialize).toHaveBeenCalled()
