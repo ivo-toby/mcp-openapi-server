@@ -289,6 +289,159 @@ paths:
       expect(tools.size).toBe(1)
       expect(tools.has("GET-users")).toBe(true)
     })
+
+    // New tests for Input Schema Composition and $ref inlining
+    it("should merge primitive request bodies into a 'body' property and mark required", () => {
+      const spec: OpenAPIV3.Document = {
+        openapi: "3.0.0",
+        info: { title: "Primitive API", version: "1.0.0" },
+        paths: {
+          "/echo": {
+            post: {
+              summary: "Echo primitive",
+              requestBody: {
+                content: { "application/json": { schema: { type: "string" } } },
+              },
+              responses: { "200": { description: "OK" } },
+            },
+          },
+        },
+      }
+      const tools = openAPILoader.parseOpenAPISpec(spec)
+      const tool = tools.get("POST-echo")!
+      expect(tool.inputSchema.properties).toHaveProperty("body")
+      expect((tool.inputSchema.properties! as any).body.type).toBe("string")
+      expect(tool.inputSchema.required).toEqual(["body"])
+    })
+
+    it("should merge object request bodies and preserve property names and required flags", () => {
+      const spec: OpenAPIV3.Document = {
+        openapi: "3.0.0",
+        info: { title: "Object API", version: "1.0.0" },
+        paths: {
+          "/create": {
+            post: {
+              summary: "Create object",
+              requestBody: {
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: { foo: { type: "integer" }, bar: { type: "boolean" } },
+                      required: ["foo"],
+                    },
+                  },
+                },
+              },
+              responses: { "200": { description: "OK" } },
+            },
+          },
+        },
+      }
+      const tools = openAPILoader.parseOpenAPISpec(spec)
+      const tool = tools.get("POST-create")!
+      expect(tool.inputSchema.properties).toHaveProperty("foo")
+      expect(tool.inputSchema.properties).toHaveProperty("bar")
+      expect(tool.inputSchema.required).toEqual(["foo"])
+    })
+
+    it("should merge array request bodies into 'body' property and mark required", () => {
+      const spec: OpenAPIV3.Document = {
+        openapi: "3.0.0",
+        info: { title: "Array API", version: "1.0.0" },
+        paths: {
+          "/list": {
+            post: {
+              summary: "List items",
+              requestBody: {
+                content: {
+                  "application/json": { schema: { type: "array", items: { type: "number" } } },
+                },
+              },
+              responses: { "200": { description: "OK" } },
+            },
+          },
+        },
+      }
+      const tools = openAPILoader.parseOpenAPISpec(spec)
+      const tool = tools.get("POST-list")!
+      expect(tool.inputSchema.properties).toHaveProperty("body")
+      expect((tool.inputSchema.properties! as any).body.type).toBe("array")
+      expect(tool.inputSchema.required).toEqual(["body"])
+    })
+
+    it("should merge parameters and requestBody, handling name collisions by prefixing", () => {
+      const spec: OpenAPIV3.Document = {
+        openapi: "3.0.0",
+        info: { title: "Mix API", version: "1.0.0" },
+        paths: {
+          "/items/{id}": {
+            post: {
+              summary: "Update item",
+              parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+              requestBody: {
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: { id: { type: "string" }, value: { type: "string" } },
+                      required: ["value"],
+                    },
+                  },
+                },
+              },
+              responses: { "200": { description: "OK" } },
+            },
+          },
+        },
+      }
+      const tools = openAPILoader.parseOpenAPISpec(spec)
+      const tool = tools.get("POST-items-id")!
+      // Path param 'id' and body properties
+      expect(tool.inputSchema.properties).toHaveProperty("id")
+      expect(tool.inputSchema.properties).toHaveProperty("value")
+      // Only required: path param and required body properties
+      expect(tool.inputSchema.required).toEqual(["id", "value"])
+    })
+
+    it("should inline $ref schemas and drop recursive cycles in requestBody", () => {
+      const spec: OpenAPIV3.Document = {
+        openapi: "3.0.0",
+        info: { title: "Ref API", version: "1.0.0" },
+        paths: {
+          "/person": {
+            post: {
+              summary: "Create person",
+              requestBody: {
+                content: {
+                  "application/json": { schema: { $ref: "#/components/schemas/Person" } },
+                },
+              },
+              responses: { "200": { description: "OK" } },
+            },
+          },
+        },
+        components: {
+          schemas: {
+            Person: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                friend: { $ref: "#/components/schemas/Person" },
+              },
+              required: ["name"],
+            },
+          },
+        },
+      }
+      const tools = openAPILoader.parseOpenAPISpec(spec)
+      const tool = tools.get("POST-person")!
+      expect(tool.inputSchema.properties).toHaveProperty("name")
+      expect(tool.inputSchema.properties).toHaveProperty("friend")
+      // friend nested should be empty object due to recursion
+      expect((tool.inputSchema.properties! as any).friend).toEqual({})
+      expect(tool.inputSchema.required).toEqual(["name"])
+    })
   })
 
   describe("abbreviateOperationId", () => {
