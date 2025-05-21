@@ -21,6 +21,8 @@ export interface OpenAPIMCPServerConfig {
   includeOperations?: string[]
   /** Tools loading mode: 'all' or 'dynamic' */
   toolsMode: "all" | "dynamic"
+  /** Client preset name for schema transformations */
+  client?: string
 }
 
 /**
@@ -111,6 +113,11 @@ export function loadConfig(): OpenAPIMCPServerConfig {
       string: true,
       description: "Import only tools for specified HTTP methods (e.g., get, post)",
     })
+    .option("client", {
+      alias: "c",
+      type: "string",
+      description: "Client preset name for applying schema transformations",
+    })
     .help()
     .parseSync()
 
@@ -155,5 +162,6 @@ export function loadConfig(): OpenAPIMCPServerConfig {
     includeResources: argv.resource as string[] | undefined,
     includeOperations: argv.operation as string[] | undefined,
     toolsMode: (argv.tools as "all" | "dynamic") || process.env.TOOLS_MODE || "all",
+    client: (argv.client as string) || process.env.CLIENT,
   }
 }

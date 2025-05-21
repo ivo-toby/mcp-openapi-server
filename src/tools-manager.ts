@@ -117,6 +117,13 @@ export class ToolsManager {
     }
     this.tools = filtered
 
+    // Apply client-specific schema transformations if a preset is provided
+    if (this.config.client) {
+      console.error(`Applying client preset: ${this.config.client}`)
+      // TODO: Implement schema transformations based on client capabilities
+      // e.g., strip unsupported keywords, split unions, adjust formats
+    }
+
     // Log the registered tools
     for (const [toolId, tool] of this.tools.entries()) {
       console.error(`Registered tool: ${toolId} (${tool.name})`)
