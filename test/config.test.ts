@@ -107,6 +107,11 @@ describe("loadConfig", () => {
       httpPort: 3000,
       httpHost: "127.0.0.1",
       endpointPath: "/mcp",
+      includeTools: undefined,
+      includeTags: undefined,
+      includeResources: undefined,
+      includeOperations: undefined,
+      toolsMode: "all",
     })
   })
 
@@ -194,6 +199,11 @@ describe("loadConfig", () => {
       httpPort: 3000,
       httpHost: "127.0.0.1",
       endpointPath: "/mcp",
+      includeTools: undefined,
+      includeTags: undefined,
+      includeResources: undefined,
+      includeOperations: undefined,
+      toolsMode: "all",
     })
   })
 

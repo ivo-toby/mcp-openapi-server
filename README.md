@@ -125,6 +125,7 @@ The server can be configured through environment variables or command line argum
 - `HTTP_PORT` - Port for HTTP transport (default: 3000)
 - `HTTP_HOST` - Host for HTTP transport (default: "127.0.0.1")
 - `ENDPOINT_PATH` - Endpoint path for HTTP transport (default: "/mcp")
+- `TOOLS_MODE` - Tools loading mode: "all" (load all endpoint-based tools) or "dynamic" (load only meta-tools) (default: "all")
 
 ### Command Line Arguments
 
@@ -139,6 +140,32 @@ npx @ivotoby/openapi-mcp-server \
   --port 3000 \
   --host 127.0.0.1 \
   --path /mcp
+```
+
+### Tool Loading & Filtering Options
+
+Based on the Stainless article "What We Learned Converting Complex OpenAPI Specs to MCP Servers" (https://www.stainless.com/blog/what-we-learned-converting-complex-openapi-specs-to-mcp-servers), the following flags were added to control which API endpoints (tools) are loaded:
+
+- `--tools <all|dynamic>`: Choose to load all tools (default) or only dynamic meta-tools (`list_api_endpoints`, `get_api_endpoint_schema`, `invoke_api_endpoint`).
+- `--tool <toolId>`: Import only specified tool IDs or names. Can be used multiple times.
+- `--tag <tag>`: Import only tools with the specified OpenAPI tag. Can be used multiple times.
+- `--resource <resource>`: Import only tools under the specified resource path prefixes. Can be used multiple times.
+- `--operation <method>`: Import only tools for the specified HTTP methods (get, post, etc). Can be used multiple times.
+
+**Examples:**
+
+```bash
+# Load only dynamic meta-tools
+npx @ivotoby/openapi-mcp-server --api-base-url https://api.example.com --openapi-spec https://api.example.com/openapi.json --tools dynamic
+
+# Load only the GET /users endpoint tool
+npx @ivotoby/openapi-mcp-server --api-base-url https://api.example.com --openapi-spec https://api.example.com/openapi.json --tool GET-users
+
+# Load tools tagged with "user" under the "/users" resource
+npx @ivotoby/openapi-mcp-server --api-base-url https://api.example.com --openapi-spec https://api.example.com/openapi.json --tag user --resource users
+
+# Load only POST operations
+npx @ivotoby/openapi-mcp-server --api-base-url https://api.example.com --openapi-spec https://api.example.com/openapi.json --operation post
 ```
 
 ## Security Considerations
@@ -186,6 +213,26 @@ To see debug logs:
 3. Make your changes
 4. Run tests and linting: `npm run typecheck && npm run lint`
 5. Submit a pull request
+
+## FAQ
+
+**Q: What is a "tool"?**
+A: A tool corresponds to a single API endpoint derived from your OpenAPI specification, exposed as an MCP resource.
+
+**Q: How do I filter which tools are loaded?**
+A: Use the `--tool`, `--tag`, `--resource`, and `--operation` flags, or set `TOOLS_MODE=dynamic` for meta-tools only.
+
+**Q: When should I use dynamic mode?**
+A: Dynamic mode provides meta-tools (`list_api_endpoints`, `get_api_endpoint_schema`, `invoke_api_endpoint`) to inspect and interact with endpoints without preloading all operations, which is useful for large or changing APIs.
+
+**Q: How do I specify custom headers for API requests?**
+A: Use the `--headers` flag or `API_HEADERS` environment variable with `key:value` pairs separated by commas.
+
+**Q: Which transport methods are supported?**
+A: The server supports stdio transport (default) for integration with AI systems and HTTP transport (with streaming via SSE) for web clients.
+
+**Q: Where can I find development and contribution guidelines?**
+A: See the "For Developers" section above for commands (`npm run build`, `npm run dev`, etc) and pull request workflow.
 
 ## License
 
