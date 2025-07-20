@@ -1,0 +1,25 @@
+{
+  "name": "http-auth-provider-example",
+  "version": "1.0.0",
+  "description": "Example showing how to use AuthProvider with HTTP transport",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "http-auth-provider-example": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@ivotoby/openapi-mcp-server": "file:../..",
+    "@modelcontextprotocol/sdk": "1.11.1",
+    "axios": "^1.8.4"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.2",
+    "@types/node": "^22.13.11"
+  }
+}

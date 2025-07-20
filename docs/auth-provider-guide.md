@@ -218,4 +218,75 @@ const config = {
 }
 ```
 
+## Usage with HTTP Transport
+
+The `AuthProvider` interface works seamlessly with both stdio and HTTP transport. When using HTTP transport, AuthProvider provides additional benefits for web clients and HTTP-capable systems.
+
+### HTTP Transport + AuthProvider Benefits
+
+- **Web client compatibility**: Any HTTP client can connect (curl, JavaScript, Python, etc.)
+- **Session management**: Multiple clients can maintain separate authenticated sessions
+- **Dynamic authentication**: Fresh headers for each API request
+- **Production ready**: Suitable for web applications and microservices
+
+### Basic HTTP Transport Setup
+
+```typescript
+import { OpenAPIServer, AuthProvider } from '@ivotoby/openapi-mcp-server'
+import { StreamableHttpServerTransport } from '@ivotoby/openapi-mcp-server'
+
+class MyHttpAuthProvider implements AuthProvider {
+  async getAuthHeaders(): Promise<Record<string, string>> {
+    return { Authorization: `Bearer ${await this.getFreshToken()}` }
+  }
+  
+  async handleAuthError(error: AxiosError): Promise<boolean> {
+    // Handle authentication errors
+    return false
+  }
+}
+
+const authProvider = new MyHttpAuthProvider()
+const config = {
+  name: 'my-http-api-server',
+  apiBaseUrl: 'https://api.example.com',
+  openApiSpec: 'https://api.example.com/openapi.json',
+  specInputMethod: 'url',
+  authProvider: authProvider,
+  transportType: 'http',
+  httpPort: 3000,
+  httpHost: '127.0.0.1',
+  endpointPath: '/mcp',
+  toolsMode: 'all'
+}
+
+const server = new OpenAPIServer(config)
+const transport = new StreamableHttpServerTransport(
+  config.httpPort,
+  config.httpHost,
+  config.endpointPath
+)
+
+await server.start(transport)
+```
+
+### HTTP Client Usage
+
+Once the server is running, clients can connect via HTTP:
+
+```bash
+# Initialize session
+curl -X POST http://127.0.0.1:3000/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"curl","version":"1.0"}}}'
+
+# Use the Mcp-Session-Id from response header for subsequent requests
+curl -X POST http://127.0.0.1:3000/mcp \
+  -H "Content-Type: application/json" \
+  -H "Mcp-Session-Id: YOUR-SESSION-ID" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+**📁 See [examples/http-auth-provider-example/](../examples/http-auth-provider-example/) for a complete HTTP + AuthProvider implementation.**
+
 The AuthProvider approach provides much more flexibility and better error handling for modern APIs with dynamic authentication requirements.

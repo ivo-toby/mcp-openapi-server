@@ -64,9 +64,11 @@ No need to clone this repository. Simply configure Claude Desktop to use this MC
 
 ### Option 2: Using with HTTP Clients (HTTP Transport)
 
-To use the server with HTTP clients:
+To use the server with HTTP clients, you have two authentication options:
 
-1. No installation required! Use npx to run the package directly:
+#### Option 2a: HTTP Transport with Static Headers (Simple)
+
+For simple APIs with static authentication:
 
 ```bash
 npx @ivotoby/openapi-mcp-server \
@@ -77,7 +79,45 @@ npx @ivotoby/openapi-mcp-server \
   --port 3000
 ```
 
-2. Interact with the server using HTTP requests:
+#### Option 2b: HTTP Transport with AuthProvider (Advanced)
+
+For APIs with token expiration, refresh requirements, or complex authentication, use the library approach with AuthProvider:
+
+```typescript
+import { OpenAPIServer, AuthProvider } from "@ivotoby/openapi-mcp-server"
+import { StreamableHttpServerTransport } from "@ivotoby/openapi-mcp-server"
+
+class MyAuthProvider implements AuthProvider {
+  async getAuthHeaders() {
+    // Return fresh headers for each request
+    return { Authorization: `Bearer ${await this.getFreshToken()}` }
+  }
+  
+  async handleAuthError(error) {
+    // Handle 401/403 errors, refresh tokens, etc.
+    return shouldRetry
+  }
+}
+
+const server = new OpenAPIServer({
+  name: "my-api-server",
+  apiBaseUrl: "https://api.example.com",
+  openApiSpec: "https://api.example.com/openapi.json",
+  specInputMethod: "url",
+  authProvider: new MyAuthProvider(),
+  transportType: "http",
+  httpPort: 3000,
+})
+
+const transport = new StreamableHttpServerTransport(3000)
+await server.start(transport)
+```
+
+📁 **See [examples/http-auth-provider-example/](./examples/http-auth-provider-example/) for a complete implementation.**
+
+#### Interacting with HTTP Transport
+
+Once the server is running, interact with it using HTTP requests:
 
 ```bash
 # Initialize a session (first request)
@@ -425,6 +465,7 @@ const config = {
 **📁 See the [examples/](./examples/) directory for complete, runnable examples including:**
 
 - Basic library usage with static authentication
+- **HTTP transport with AuthProvider** for web clients and dynamic authentication
 - AuthProvider implementations for different scenarios
 - Real-world Beatport API integration
 - Production-ready packaging patterns
@@ -603,7 +644,10 @@ A: The CLI is great for quick setup and testing, while the library approach allo
 A: Use the `AuthProvider` interface instead of static headers. AuthProvider allows you to implement dynamic authentication with token refresh, expiration handling, and custom error recovery. See the AuthProvider examples for different patterns.
 
 **Q: What is AuthProvider and when should I use it?**
-A: `AuthProvider` is an interface for dynamic authentication that gets fresh headers before each request and handles authentication errors. Use it when your API has expiring tokens, requires token refresh, or needs complex authentication logic that static headers can't handle.
+A: `AuthProvider` is an interface for dynamic authentication that gets fresh headers before each request and handles authentication errors. Use it when your API has expiring tokens, requires token refresh, or needs complex authentication logic that static headers can't handle. It works with both stdio and HTTP transport.
+
+**Q: How do I use AuthProvider with HTTP transport?**
+A: Use the library approach with the `StreamableHttpServerTransport`. See the [HTTP AuthProvider example](./examples/http-auth-provider-example/) for a complete implementation that shows how to combine HTTP transport with dynamic authentication for web clients.
 
 **Q: How do I filter which tools are loaded?**
 A: Use the `--tool`, `--tag`, `--resource`, and `--operation` flags with `--tools all` (default), set `--tools dynamic` for meta-tools only, or use `--tools explicit` to load only tools specified with `--tool` (ignoring other filters).

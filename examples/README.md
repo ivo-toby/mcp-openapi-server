@@ -28,7 +28,7 @@ These examples focus on the **library usage**, showing how to create dedicated, 
 
 ### 2. [AuthProvider Example](./auth-provider-example/)
 
-**Purpose**: Showcases the `AuthProvider` interface for dynamic authentication scenarios.
+**Purpose**: Showcases the `AuthProvider` interface for dynamic authentication scenarios with stdio transport.
 
 **Key Features**:
 
@@ -37,9 +37,23 @@ These examples focus on the **library usage**, showing how to create dedicated, 
 - Authentication error recovery
 - Dynamic header generation
 
-**When to use**: When your API requires token refresh, has expiring tokens, or needs complex authentication logic.
+**When to use**: When your API requires token refresh, has expiring tokens, or needs complex authentication logic with Claude Desktop.
 
-### 3. [Beatport Example](./beatport-example/)
+### 3. [HTTP Transport with AuthProvider](./http-auth-provider-example/)
+
+**Purpose**: Demonstrates how to combine HTTP transport with AuthProvider for web clients and HTTP-capable systems.
+
+**Key Features**:
+
+- HTTP transport with dynamic authentication
+- Multiple AuthProvider implementations for HTTP
+- Web client compatibility (curl, JavaScript, etc.)
+- Session management and streaming responses
+- Production-ready patterns for web services
+
+**When to use**: When you need HTTP transport with dynamic authentication for web applications, APIs, or HTTP-capable clients.
+
+### 4. [Beatport Example](./beatport-example/)
 
 **Purpose**: Real-world implementation for the Beatport API demonstrating production-ready patterns.
 
@@ -110,7 +124,8 @@ All examples demonstrate different configuration patterns:
 ### 1. Choose Your Pattern
 
 - **Simple API with static auth** → Start with [Basic Library Usage](./basic-library-usage/)
-- **API with token expiration** → Use [AuthProvider Example](./auth-provider-example/)
+- **API with token expiration (Claude Desktop)** → Use [AuthProvider Example](./auth-provider-example/)
+- **API with token expiration (HTTP clients)** → Use [HTTP AuthProvider Example](./http-auth-provider-example/)
 - **Production deployment** → Follow [Beatport Example](./beatport-example/) patterns
 
 ### 2. Copy and Customize
