@@ -36,7 +36,6 @@ The server supports two transport methods:
 No need to clone this repository. Simply configure Claude Desktop to use this MCP server:
 
 1. Locate or create your Claude Desktop configuration file:
-
    - On macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
 
 2. Add the following configuration:
@@ -308,7 +307,6 @@ The HTTP transport allows the MCP server to be accessed over HTTP, enabling web 
 To see debug logs:
 
 1. When using stdio transport with Claude Desktop:
-
    - Logs appear in the Claude Desktop logs
 
 2. When using HTTP transport:
@@ -535,6 +533,70 @@ This MCP server implements robust OpenAPI reference (`$ref`) resolution to ensur
 - **Recursive References**: Prevents infinite loops by detecting and handling circular references
 - **Nested Properties**: Preserves complex nested object and array structures with all their attributes
 
+#### Query Parameter Handling
+
+The server provides comprehensive support for OpenAPI query parameters, automatically handling them based on the HTTP method:
+
+**For GET-like methods** (GET, DELETE, HEAD, OPTIONS):
+
+- Query parameters are sent as URL query strings via Axios `params`
+- Arrays are automatically converted to comma-separated strings (e.g., `["a", "b", "c"]` becomes `"a,b,c"`)
+- Boolean and numeric values are preserved as their respective types
+- Path parameters are correctly interpolated into the URL and removed from query parameters
+
+**For POST-like methods** (POST, PUT, PATCH):
+
+- All parameters (including query parameters) are included in the request body
+- This follows REST conventions where POST requests typically use request bodies
+
+**Parameter Processing**:
+
+```json
+{
+  "name": "limit",
+  "in": "query",
+  "schema": { "type": "integer" },
+  "required": false
+}
+```
+
+When you call a tool with query parameters:
+
+```javascript
+// This GET request
+{ "limit": 10, "tags": ["javascript", "typescript"] }
+
+// Becomes this HTTP request
+GET /api/search?limit=10&tags=javascript,typescript
+```
+
+**Mixed Parameter Types**:
+
+```json
+{
+  "parameters": [
+    { "name": "userId", "in": "path", "required": true },
+    { "name": "include", "in": "query", "required": false },
+    { "name": "format", "in": "query", "required": false }
+  ]
+}
+```
+
+```javascript
+// Tool call parameters
+{ "userId": "123", "include": "posts", "format": "json" }
+
+// Results in HTTP request
+GET /users/123/posts?include=posts&format=json
+```
+
+The server ensures that:
+
+- Path parameters are correctly substituted in URLs (not added to query string)
+- Query parameters are properly encoded and formatted
+- Parameter types are preserved (strings, numbers, booleans, arrays)
+- Undefined/null values are excluded from the request
+
 ### Input Schema Composition
 
 The server intelligently merges parameters and request bodies into a unified input schema for each tool:
@@ -592,6 +654,9 @@ The MCP server handles various OpenAPI schema complexities:
 
 **Q: What is a "tool"?**
 A: A tool corresponds to a single API endpoint derived from your OpenAPI specification, exposed as an MCP resource.
+
+**Q: Are query parameters supported? How are they handled?**
+A: Yes! Query parameters are fully supported and automatically handled based on the HTTP method. For GET-like methods (GET, DELETE, HEAD, OPTIONS), query parameters are sent as URL query strings. For POST-like methods (POST, PUT, PATCH), they're included in the request body. Arrays are converted to comma-separated strings, and all parameter types are preserved. See the "Query Parameter Handling" section for detailed examples.
 
 **Q: How can I use this package in my own project?**
 A: You can import the `OpenAPIServer` class and use it as a library in your Node.js application. This allows you to create dedicated MCP servers for specific APIs with custom authentication, filtering, and error handling. See the [examples/](./examples/) directory for complete implementations.
