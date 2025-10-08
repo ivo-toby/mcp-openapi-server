@@ -130,11 +130,12 @@ export class ApiClient {
         return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") // $& means the whole matched string
       }
 
-      // Handle path and header parameters
+      // Handle path, query, and header parameters
       const headerParams: Record<string, string> = {}
+      const queryParams: Record<string, any> = {}
 
       if (toolDef?.inputSchema?.properties) {
-        // Check each parameter to see if it's a path or header parameter
+        // Check each parameter to see if it's a path, query, or header parameter
         for (const [key, value] of Object.entries(paramsCopy)) {
           const paramDef = toolDef.inputSchema.properties[key]
           // Get the parameter location from the extended schema
@@ -161,6 +162,11 @@ export class ApiClient {
               // Fall back to the original simple replacement for backward compatibility
               resolvedPath = resolvedPath.replace(`/${key}`, `/${encodeURIComponent(value)}`)
             }
+            delete paramsCopy[key]
+          }
+          // If it's a query parameter, add to query params and remove from params
+          else if (paramLocation === "query") {
+            queryParams[key] = value
             delete paramsCopy[key]
           }
           // If it's a header parameter, add to headers and remove from params
@@ -207,13 +213,25 @@ export class ApiClient {
         headers: { ...authHeaders, ...headerParams },
       }
 
-      // Handle parameters based on HTTP method
+      // Add query parameters if any exist
+      if (Object.keys(queryParams).length > 0) {
+        config.params = this.processQueryParams(queryParams)
+      }
+
+      // Handle remaining parameters (body parameters) based on HTTP method
       if (isGetLikeMethod(method)) {
-        // For GET-like methods, parameters go in the query string
-        config.params = this.processQueryParams(paramsCopy)
+        // For GET-like methods, remaining parameters also go in the query string
+        if (Object.keys(paramsCopy).length > 0) {
+          config.params = {
+            ...config.params,
+            ...this.processQueryParams(paramsCopy),
+          }
+        }
       } else {
-        // For POST-like methods, parameters go in the request body
-        config.data = paramsCopy
+        // For POST-like methods, remaining parameters go in the request body
+        if (Object.keys(paramsCopy).length > 0) {
+          config.data = paramsCopy
+        }
       }
 
       // Execute the request

@@ -752,6 +752,97 @@ describe("Issue #50: Header Parameter Support", () => {
     expect(capturedConfig.data["x-request-id"]).toBeUndefined()
   })
 
+  it("should handle query parameters in POST requests (Issue #44)", async () => {
+    const mockSpecLoader = new OpenAPISpecLoader()
+    const mockApiClient = new ApiClient(
+      "https://api.example.com",
+      new StaticAuthProvider(),
+      mockSpecLoader,
+    )
+
+    const testSpec = {
+      openapi: "3.0.0",
+      info: { title: "Test API", version: "1.0.0" },
+      paths: {
+        "/upload": {
+          post: {
+            operationId: "uploadFile",
+            parameters: [
+              {
+                name: "overwrite",
+                in: "query",
+                required: false,
+                schema: { type: "boolean" as const },
+                description: "Whether to overwrite existing file",
+              },
+              {
+                name: "notify",
+                in: "query",
+                required: false,
+                schema: { type: "boolean" as const },
+                description: "Whether to send notifications",
+              },
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object" as const,
+                    properties: {
+                      filename: { type: "string" as const },
+                      data: { type: "string" as const },
+                    },
+                  },
+                },
+              },
+            },
+            responses: { "200": { description: "Upload successful" } },
+          },
+        },
+      },
+    }
+
+    mockApiClient.setOpenApiSpec(testSpec as any)
+    const tools = mockSpecLoader.parseOpenAPISpec(testSpec as any)
+    mockApiClient.setTools(tools)
+
+    let capturedConfig: any = null
+    const mockAxios = vi.fn().mockImplementation((config) => {
+      capturedConfig = config
+      return Promise.resolve({ data: { success: true } })
+    })
+    ;(mockApiClient as any).axiosInstance = mockAxios
+
+    const toolId = "POST::upload"
+    await mockApiClient.executeApiCall(toolId, {
+      overwrite: true,
+      notify: false,
+      filename: "test.txt",
+      data: "file content here",
+    })
+
+    // Verify query parameters are in params (query string)
+    expect(capturedConfig.params).toEqual({
+      overwrite: true,
+      notify: false,
+    })
+
+    // Verify body parameters are in data (request body)
+    expect(capturedConfig.data).toEqual({
+      filename: "test.txt",
+      data: "file content here",
+    })
+
+    // Verify query parameters are NOT in body
+    expect(capturedConfig.data.overwrite).toBeUndefined()
+    expect(capturedConfig.data.notify).toBeUndefined()
+
+    // Verify body parameters are NOT in query string
+    expect(capturedConfig.params.filename).toBeUndefined()
+    expect(capturedConfig.params.data).toBeUndefined()
+  })
+
   it("should handle mixed path, query, and header parameters", async () => {
     const mockSpecLoader = new OpenAPISpecLoader()
     const mockApiClient = new ApiClient(
