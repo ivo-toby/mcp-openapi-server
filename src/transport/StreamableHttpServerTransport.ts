@@ -32,8 +32,10 @@ export class StreamableHttpServerTransport implements Transport {
   private server: http.Server
   private sessions: Map<string, SessionData> = new Map()
   private started = false
+  private startTime = Date.now()
   private maxBodySize = 4 * 1024 * 1024 // 4MB max request size
   private requestSessionMap: Map<string | number, string> = new Map() // Maps request IDs to session IDs
+  private readonly healthCheckPath = "/health"
 
   /**
    * Initialize a new StreamableHttpServerTransport
@@ -237,9 +239,31 @@ export class StreamableHttpServerTransport implements Transport {
   }
 
   /**
+   * Handle health check request
+   */
+  private handleHealthCheck(_req: http.IncomingMessage, res: http.ServerResponse): void {
+    const uptime = Math.floor((Date.now() - this.startTime) / 1000) // uptime in seconds
+    const healthResponse = {
+      status: "healthy",
+      activeSessions: this.sessions.size,
+      uptime,
+    }
+
+    res.setHeader("Content-Type", "application/json")
+    res.writeHead(200)
+    res.end(JSON.stringify(healthResponse))
+  }
+
+  /**
    * Handle HTTP request
    */
   private handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
+    // Handle health check endpoint
+    if (req.url === this.healthCheckPath) {
+      this.handleHealthCheck(req, res)
+      return
+    }
+
     // Only handle requests to the MCP endpoint
     if (req.url !== this.endpointPath) {
       res.writeHead(404)
