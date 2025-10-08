@@ -1042,6 +1042,146 @@ describe("StreamableHttpServerTransport", () => {
       expect.stringContaining("Invalid session. A valid Mcp-Session-Id header is required."),
     )
   })
+
+  describe("Health Check Endpoint (Issue #48)", () => {
+    it("should respond to GET /health with status 200 and health info", () => {
+      const transportAny = transport as any
+
+      const req = {
+        url: "/health",
+        method: "GET",
+        headers: {},
+      }
+
+      const res = createMockResponse()
+
+      // Call the request handler
+      transportAny.handleRequest(req, res)
+
+      // Verify response
+      expect(res.setHeader).toHaveBeenCalledWith("Content-Type", "application/json")
+      expect(res.writeHead).toHaveBeenCalledWith(200)
+      expect(res.end).toHaveBeenCalled()
+
+      // Parse and verify response body
+      const responseBody = res.end.mock.calls[0]?.[0]
+      expect(responseBody).toBeDefined()
+
+      const healthData = JSON.parse(responseBody)
+      expect(healthData.status).toBe("healthy")
+      expect(healthData.activeSessions).toBe(0)
+      expect(healthData.uptime).toBeGreaterThanOrEqual(0)
+      expect(typeof healthData.uptime).toBe("number")
+    })
+
+    it("should report correct number of active sessions", () => {
+      const transportAny = transport as any
+
+      // Create some test sessions
+      transportAny.sessions.set("session-1", {
+        messageHandler: vi.fn(),
+        activeResponses: new Set(),
+        initialized: true,
+        pendingRequests: new Set(),
+      })
+
+      transportAny.sessions.set("session-2", {
+        messageHandler: vi.fn(),
+        activeResponses: new Set(),
+        initialized: true,
+        pendingRequests: new Set(),
+      })
+
+      const req = {
+        url: "/health",
+        method: "GET",
+        headers: {},
+      }
+
+      const res = createMockResponse()
+
+      // Call the request handler
+      transportAny.handleRequest(req, res)
+
+      // Verify response
+      expect(res.writeHead).toHaveBeenCalledWith(200)
+      expect(res.end).toHaveBeenCalled()
+
+      // Parse and verify response body
+      const responseBody = res.end.mock.calls[0]?.[0]
+      const healthData = JSON.parse(responseBody)
+
+      expect(healthData.status).toBe("healthy")
+      expect(healthData.activeSessions).toBe(2)
+    })
+
+    it("should calculate uptime correctly", async () => {
+      const transportAny = transport as any
+
+      // Wait a bit to ensure uptime is measurable
+      await new Promise((resolve) => setTimeout(resolve, 100))
+
+      const req = {
+        url: "/health",
+        method: "GET",
+        headers: {},
+      }
+
+      const res = createMockResponse()
+
+      // Call the request handler
+      transportAny.handleRequest(req, res)
+
+      // Parse response
+      const responseBody = res.end.mock.calls[0]?.[0]
+      const healthData = JSON.parse(responseBody)
+
+      // Uptime should be at least 0 seconds (could be 0 if very fast)
+      expect(healthData.uptime).toBeGreaterThanOrEqual(0)
+      expect(typeof healthData.uptime).toBe("number")
+      expect(Number.isInteger(healthData.uptime)).toBe(true)
+    })
+
+    it("should not require authentication or session ID", () => {
+      const transportAny = transport as any
+
+      const req = {
+        url: "/health",
+        method: "GET",
+        headers: {
+          // No session ID or authentication
+        },
+      }
+
+      const res = createMockResponse()
+
+      // Call the request handler
+      transportAny.handleRequest(req, res)
+
+      // Should succeed without authentication
+      expect(res.writeHead).toHaveBeenCalledWith(200)
+      expect(res.end).toHaveBeenCalled()
+    })
+
+    it("should handle POST requests to /health (allow any method)", () => {
+      const transportAny = transport as any
+
+      const req = {
+        url: "/health",
+        method: "POST",
+        headers: {},
+      }
+
+      const res = createMockResponse()
+
+      // Call the request handler
+      transportAny.handleRequest(req, res)
+
+      // Should succeed regardless of method
+      expect(res.writeHead).toHaveBeenCalledWith(200)
+      expect(res.end).toHaveBeenCalled()
+    })
+  })
 })
 
 // Helper functions to create mock objects

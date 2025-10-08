@@ -297,6 +297,48 @@ The HTTP transport allows the MCP server to be accessed over HTTP, enabling web 
 
 **When to use**: When you need to expose the MCP server to web clients or systems that communicate over HTTP rather than stdio.
 
+### Health Check Endpoint
+
+When using HTTP transport, a health check endpoint is available at `/health` for monitoring and service discovery:
+
+```bash
+# Check server health
+curl http://localhost:3000/health
+
+# Response:
+# {
+#   "status": "healthy",
+#   "activeSessions": 2,
+#   "uptime": 3600
+# }
+```
+
+**Health Response Fields:**
+- `status`: Always returns "healthy" when server is running
+- `activeSessions`: Number of active MCP sessions
+- `uptime`: Server uptime in seconds
+
+**Key Features:**
+- No authentication required
+- Works with any HTTP method (GET, POST, etc.)
+- Ideal for load balancers, Kubernetes probes, and monitoring systems
+
+**Integration Examples:**
+
+```yaml
+# Kubernetes liveness probe
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 3000
+  initialDelaySeconds: 3
+  periodSeconds: 10
+
+# Docker healthcheck
+HEALTHCHECK --interval=30s --timeout=3s \
+  CMD curl -f http://localhost:3000/health || exit 1
+```
+
 ## Security Considerations
 
 - The HTTP transport validates Origin headers to prevent DNS rebinding attacks
