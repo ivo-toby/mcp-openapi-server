@@ -601,3 +601,304 @@ describe("PR #38 Review Comment Fixes", () => {
     })
   })
 })
+
+// Tests for Issue #50: Support for header parameters
+describe("Issue #50: Header Parameter Support", () => {
+  it("should send header parameters in request headers for GET requests", async () => {
+    const mockSpecLoader = new OpenAPISpecLoader()
+    const mockApiClient = new ApiClient(
+      "https://api.example.com",
+      new StaticAuthProvider(),
+      mockSpecLoader,
+    )
+
+    const testSpec = {
+      openapi: "3.0.0",
+      info: { title: "Test API", version: "1.0.0" },
+      paths: {
+        "/api/data": {
+          get: {
+            operationId: "getData",
+            parameters: [
+              {
+                name: "authorization",
+                in: "header",
+                required: true,
+                schema: { type: "string" as const },
+              },
+              {
+                name: "x-api-key",
+                in: "header",
+                required: false,
+                schema: { type: "string" as const },
+              },
+              {
+                name: "page",
+                in: "query",
+                required: false,
+                schema: { type: "integer" as const },
+              },
+            ],
+            responses: { "200": { description: "Success" } },
+          },
+        },
+      },
+    }
+
+    mockApiClient.setOpenApiSpec(testSpec as any)
+    const tools = mockSpecLoader.parseOpenAPISpec(testSpec as any)
+    mockApiClient.setTools(tools)
+
+    let capturedConfig: any = null
+    const mockAxios = vi.fn().mockImplementation((config) => {
+      capturedConfig = config
+      return Promise.resolve({ data: { success: true } })
+    })
+    ;(mockApiClient as any).axiosInstance = mockAxios
+
+    const toolId = "GET::api__data"
+    await mockApiClient.executeApiCall(toolId, {
+      authorization: "Bearer token123",
+      "x-api-key": "secret-key",
+      page: 1,
+    })
+
+    // Verify header parameters are in headers
+    expect(capturedConfig.headers).toEqual({
+      authorization: "Bearer token123",
+      "x-api-key": "secret-key",
+    })
+
+    // Verify query parameters are in params (not headers)
+    expect(capturedConfig.params).toEqual({ page: 1 })
+
+    // Verify header parameters are NOT in params
+    expect(capturedConfig.params.authorization).toBeUndefined()
+    expect(capturedConfig.params["x-api-key"]).toBeUndefined()
+  })
+
+  it("should send header parameters in request headers for POST requests", async () => {
+    const mockSpecLoader = new OpenAPISpecLoader()
+    const mockApiClient = new ApiClient(
+      "https://api.example.com",
+      new StaticAuthProvider(),
+      mockSpecLoader,
+    )
+
+    const testSpec = {
+      openapi: "3.0.0",
+      info: { title: "Test API", version: "1.0.0" },
+      paths: {
+        "/api/resources": {
+          post: {
+            operationId: "createResource",
+            parameters: [
+              {
+                name: "x-request-id",
+                in: "header",
+                required: true,
+                schema: { type: "string" as const },
+              },
+            ],
+            requestBody: {
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object" as const,
+                    properties: {
+                      name: { type: "string" as const },
+                      value: { type: "string" as const },
+                    },
+                  },
+                },
+              },
+            },
+            responses: { "201": { description: "Created" } },
+          },
+        },
+      },
+    }
+
+    mockApiClient.setOpenApiSpec(testSpec as any)
+    const tools = mockSpecLoader.parseOpenAPISpec(testSpec as any)
+    mockApiClient.setTools(tools)
+
+    let capturedConfig: any = null
+    const mockAxios = vi.fn().mockImplementation((config) => {
+      capturedConfig = config
+      return Promise.resolve({ data: { id: 1, name: "test" } })
+    })
+    ;(mockApiClient as any).axiosInstance = mockAxios
+
+    const toolId = "POST::api__resources"
+    await mockApiClient.executeApiCall(toolId, {
+      "x-request-id": "req-12345",
+      name: "test-resource",
+      value: "test-value",
+    })
+
+    // Verify header parameter is in headers
+    expect(capturedConfig.headers).toEqual({
+      "x-request-id": "req-12345",
+    })
+
+    // Verify body parameters are in data (not headers)
+    expect(capturedConfig.data).toEqual({
+      name: "test-resource",
+      value: "test-value",
+    })
+
+    // Verify header parameter is NOT in data
+    expect(capturedConfig.data["x-request-id"]).toBeUndefined()
+  })
+
+  it("should handle mixed path, query, and header parameters", async () => {
+    const mockSpecLoader = new OpenAPISpecLoader()
+    const mockApiClient = new ApiClient(
+      "https://api.example.com",
+      new StaticAuthProvider(),
+      mockSpecLoader,
+    )
+
+    const testSpec = {
+      openapi: "3.0.0",
+      info: { title: "Test API", version: "1.0.0" },
+      paths: {
+        "/api/users/{userId}/posts": {
+          get: {
+            operationId: "getUserPosts",
+            parameters: [
+              {
+                name: "userId",
+                in: "path",
+                required: true,
+                schema: { type: "string" as const },
+              },
+              {
+                name: "authorization",
+                in: "header",
+                required: true,
+                schema: { type: "string" as const },
+              },
+              {
+                name: "limit",
+                in: "query",
+                required: false,
+                schema: { type: "integer" as const },
+              },
+            ],
+            responses: { "200": { description: "Success" } },
+          },
+        },
+      },
+    }
+
+    mockApiClient.setOpenApiSpec(testSpec as any)
+    const tools = mockSpecLoader.parseOpenAPISpec(testSpec as any)
+    mockApiClient.setTools(tools)
+
+    let capturedConfig: any = null
+    const mockAxios = vi.fn().mockImplementation((config) => {
+      capturedConfig = config
+      return Promise.resolve({ data: [] })
+    })
+    ;(mockApiClient as any).axiosInstance = mockAxios
+
+    const toolId = "GET::api__users__---userId__posts"
+    await mockApiClient.executeApiCall(toolId, {
+      userId: "user-123",
+      authorization: "Bearer xyz789",
+      limit: 10,
+    })
+
+    // Verify path parameter is in URL
+    expect(capturedConfig.url).toBe("/api/users/user-123/posts")
+
+    // Verify header parameter is in headers
+    expect(capturedConfig.headers).toEqual({
+      authorization: "Bearer xyz789",
+    })
+
+    // Verify query parameter is in params
+    expect(capturedConfig.params).toEqual({ limit: 10 })
+
+    // Verify no parameters leaked into wrong locations
+    expect(capturedConfig.params.userId).toBeUndefined()
+    expect(capturedConfig.params.authorization).toBeUndefined()
+    expect(capturedConfig.headers.limit).toBeUndefined()
+  })
+
+  it("should merge header parameters with auth headers", async () => {
+    const mockSpecLoader = new OpenAPISpecLoader()
+    const authHeaders = { Authorization: "Bearer auth-token" }
+    const mockApiClient = new ApiClient(
+      "https://api.example.com",
+      new StaticAuthProvider(authHeaders),
+      mockSpecLoader,
+    )
+
+    const testSpec = {
+      openapi: "3.0.0",
+      info: { title: "Test API", version: "1.0.0" },
+      paths: {
+        "/api/data": {
+          get: {
+            operationId: "getData",
+            parameters: [
+              {
+                name: "x-custom-header",
+                in: "header",
+                required: true,
+                schema: { type: "string" as const },
+              },
+            ],
+            responses: { "200": { description: "Success" } },
+          },
+        },
+      },
+    }
+
+    mockApiClient.setOpenApiSpec(testSpec as any)
+    const tools = mockSpecLoader.parseOpenAPISpec(testSpec as any)
+    mockApiClient.setTools(tools)
+
+    let capturedConfig: any = null
+    const mockAxios = vi.fn().mockImplementation((config) => {
+      capturedConfig = config
+      return Promise.resolve({ data: {} })
+    })
+    ;(mockApiClient as any).axiosInstance = mockAxios
+
+    const toolId = "GET::api__data"
+    await mockApiClient.executeApiCall(toolId, {
+      "x-custom-header": "custom-value",
+    })
+
+    // Verify both auth headers and custom header parameters are present
+    expect(capturedConfig.headers).toEqual({
+      Authorization: "Bearer auth-token",
+      "x-custom-header": "custom-value",
+    })
+  })
+
+  it("should handle header parameters without tool definition (fallback mode)", async () => {
+    // This test ensures the fallback behavior doesn't break when tool definition is unavailable
+    const mockApiClient = new ApiClient("https://api.example.com", new StaticAuthProvider())
+
+    // Don't set tools, forcing fallback behavior
+    let capturedConfig: any = null
+    const mockAxios = vi.fn().mockImplementation((config) => {
+      capturedConfig = config
+      return Promise.resolve({ data: {} })
+    })
+    ;(mockApiClient as any).axiosInstance = mockAxios
+
+    const toolId = "GET::api__data"
+    await mockApiClient.executeApiCall(toolId, {
+      page: 1,
+    })
+
+    // In fallback mode without tool definition, parameters go to query/body as before
+    expect(capturedConfig.params).toEqual({ page: 1 })
+  })
+})

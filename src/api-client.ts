@@ -130,9 +130,11 @@ export class ApiClient {
         return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") // $& means the whole matched string
       }
 
-      // Handle path parameters
+      // Handle path and header parameters
+      const headerParams: Record<string, string> = {}
+
       if (toolDef?.inputSchema?.properties) {
-        // Check each parameter to see if it's a path parameter
+        // Check each parameter to see if it's a path or header parameter
         for (const [key, value] of Object.entries(paramsCopy)) {
           const paramDef = toolDef.inputSchema.properties[key]
           // Get the parameter location from the extended schema
@@ -159,6 +161,11 @@ export class ApiClient {
               // Fall back to the original simple replacement for backward compatibility
               resolvedPath = resolvedPath.replace(`/${key}`, `/${encodeURIComponent(value)}`)
             }
+            delete paramsCopy[key]
+          }
+          // If it's a header parameter, add to headers and remove from params
+          else if (paramLocation === "header") {
+            headerParams[key] = String(value)
             delete paramsCopy[key]
           }
         }
@@ -197,7 +204,7 @@ export class ApiClient {
       const config: any = {
         method: method.toLowerCase(),
         url: resolvedPath,
-        headers: authHeaders,
+        headers: { ...authHeaders, ...headerParams },
       }
 
       // Handle parameters based on HTTP method
