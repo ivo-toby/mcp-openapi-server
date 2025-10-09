@@ -229,9 +229,7 @@ export class ApiClient {
         }
       } else {
         // For POST-like methods, remaining parameters go in the request body
-        if (Object.keys(paramsCopy).length > 0) {
-          config.data = paramsCopy
-        }
+        config.data = Object.keys(paramsCopy).length > 0 ? paramsCopy : {}
       }
 
       // Execute the request

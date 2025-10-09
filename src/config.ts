@@ -200,6 +200,21 @@ export function loadConfig(): OpenAPIMCPServerConfig {
     argv["disable-abbreviation"] ||
     (process.env.DISABLE_ABBREVIATION ? process.env.DISABLE_ABBREVIATION === "true" : false)
 
+  const toolsModeInput =
+    (typeof argv.tools === "string" ? argv.tools : undefined) || process.env.TOOLS_MODE
+
+  let toolsMode: "all" | "dynamic" | "explicit" = "all"
+  if (typeof toolsModeInput === "string" && toolsModeInput.trim().length > 0) {
+    const normalized = toolsModeInput.toLowerCase()
+    if (normalized === "all" || normalized === "dynamic" || normalized === "explicit") {
+      toolsMode = normalized
+    } else {
+      throw new Error(
+        "Invalid tools mode. Expected one of: all, dynamic, explicit",
+      )
+    }
+  }
+
   if (!apiBaseUrl) {
     throw new Error("API base URL is required (--api-base-url or API_BASE_URL)")
   }
@@ -222,7 +237,7 @@ export function loadConfig(): OpenAPIMCPServerConfig {
     includeTags: argv.tag as string[] | undefined,
     includeResources: argv.resource as string[] | undefined,
     includeOperations: argv.operation as string[] | undefined,
-    toolsMode: (argv.tools as "all" | "dynamic" | "explicit") || process.env.TOOLS_MODE || "all",
+    toolsMode,
     disableAbbreviation: disableAbbreviation ? true : undefined,
   }
 }

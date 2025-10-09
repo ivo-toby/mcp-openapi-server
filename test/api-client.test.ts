@@ -254,6 +254,54 @@ describe("ApiClient Dynamic Meta-Tools", () => {
   })
 })
 
+describe("ApiClient request body handling", () => {
+  it("sends an empty JSON object when POST tools only include header parameters", async () => {
+    const mockSpecLoader = new OpenAPISpecLoader()
+    const apiClient = new ApiClient(
+      "https://api.example.com",
+      new StaticAuthProvider(),
+      mockSpecLoader,
+    )
+
+    const toolId = "POST::qry-alerts-qry-alerts-pst"
+    const tools = new Map<string, Tool>([
+      [
+        toolId,
+        {
+          name: "qry-alerts-qry-alerts-pst",
+          description: "Query alerts",
+          inputSchema: {
+            type: "object" as const,
+            properties: {
+              authorization: {
+                type: "string" as const,
+                "x-parameter-location": "header",
+              },
+            },
+          },
+        } as Tool,
+      ],
+    ])
+
+    apiClient.setTools(tools)
+
+    let capturedConfig: any
+    const mockAxios = vi.fn().mockImplementation((config) => {
+      capturedConfig = config
+      return Promise.resolve({ data: { ok: true } })
+    })
+
+    ;(apiClient as any).axiosInstance = mockAxios
+
+    await apiClient.executeApiCall(toolId, { authorization: "Bearer secure_token_123" })
+
+    expect(capturedConfig).toBeDefined()
+    expect(capturedConfig.method).toBe("post")
+    expect(capturedConfig.headers.authorization).toBe("Bearer secure_token_123")
+    expect(capturedConfig.data).toEqual({})
+  })
+})
+
 // Regression test for Issue #33: Path parameter replacement bug
 describe("Issue #33 Regression Test", () => {
   it("should correctly replace path parameters without affecting similar text in path segments", async () => {
