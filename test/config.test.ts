@@ -855,6 +855,74 @@ describe("loadConfig", () => {
       expect(config.toolsMode).toBe("dynamic")
     })
 
+    it("should normalize toolsMode input to lowercase", async () => {
+      vi.doMock("yargs", () => ({
+        default: vi.fn().mockReturnValue({
+          option: vi.fn().mockReturnThis(),
+          help: vi.fn().mockReturnThis(),
+          parseSync: vi.fn().mockReturnValue({
+            "api-base-url": "https://api.example.com",
+            "openapi-spec": "./spec.json",
+            tools: "DYNAMIC",
+          }),
+        }),
+      }))
+
+      vi.doMock("yargs/helpers", () => ({
+        hideBin: vi.fn((arr) => arr),
+      }))
+
+      const { loadConfig } = await import("../src/config")
+      const config = loadConfig()
+      expect(config.toolsMode).toBe("dynamic")
+    })
+
+    it("should normalize toolsMode from environment variables", async () => {
+      vi.doMock("yargs", () => ({
+        default: vi.fn().mockReturnValue({
+          option: vi.fn().mockReturnThis(),
+          help: vi.fn().mockReturnThis(),
+          parseSync: vi.fn().mockReturnValue({
+            "api-base-url": "https://api.example.com",
+            "openapi-spec": "./spec.json",
+          }),
+        }),
+      }))
+
+      vi.doMock("yargs/helpers", () => ({
+        hideBin: vi.fn((arr) => arr),
+      }))
+
+      process.env.TOOLS_MODE = "EXPLICIT"
+
+      const { loadConfig } = await import("../src/config")
+      const config = loadConfig()
+      expect(config.toolsMode).toBe("explicit")
+    })
+
+    it("should throw on invalid toolsMode input", async () => {
+      vi.doMock("yargs", () => ({
+        default: vi.fn().mockReturnValue({
+          option: vi.fn().mockReturnThis(),
+          help: vi.fn().mockReturnThis(),
+          parseSync: vi.fn().mockReturnValue({
+            "api-base-url": "https://api.example.com",
+            "openapi-spec": "./spec.json",
+            tools: "invalid-mode",
+          }),
+        }),
+      }))
+
+      vi.doMock("yargs/helpers", () => ({
+        hideBin: vi.fn((arr) => arr),
+      }))
+
+      const { loadConfig } = await import("../src/config")
+      expect(() => loadConfig()).toThrow(
+        "Invalid tools mode. Expected one of: all, dynamic, explicit",
+      )
+    })
+
     it("should default to 'all' for toolsMode when not specified", async () => {
       vi.doMock("yargs", () => ({
         default: vi.fn().mockReturnValue({
