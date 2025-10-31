@@ -34,17 +34,18 @@ export function parseToolId(toolId: string): { method: string; path: string } {
 /**
  * Sanitize a string to contain only safe characters for tool IDs
  *
- * Removes or replaces characters that are not alphanumeric, underscores, hyphens, or dots.
+ * Removes or replaces characters that are not alphanumeric, underscores, hyphens, dots, or colons.
  * This ensures consistent and safe ID formatting while preserving double underscores
  * which are used as path separators and triple-dash markers for path parameters.
  * Dots are preserved to maintain version numbers and decimal values in API paths.
+ * Colons are preserved to support Google-style RPC suffixes (e.g., :activate, :cancel).
  *
  * @param input - String to sanitize
- * @returns Sanitized string containing only [A-Za-z0-9_.-]
+ * @returns Sanitized string containing only [A-Za-z0-9_.:.-]
  */
 function sanitizeForToolId(input: string): string {
   let result = input
-    .replace(/[^A-Za-z0-9_.-]/g, "") // Remove any character not in the allowed set (now includes dots)
+    .replace(/[^A-Za-z0-9_.:.-]/g, "") // Remove any character not in the allowed set (now includes dots and colons)
     .replace(/_{3,}/g, "__") // Collapse 3+ consecutive underscores to double underscore (preserve path separators)
 
   // Handle hyphen sequences more carefully to preserve legitimate triple-hyphen markers
@@ -81,12 +82,13 @@ function collapseExcessiveHyphens(input: string): string {
  *
  * This converts an API path to the toolId format by replacing slashes with double
  * underscores (__), transforming path parameter braces to unique markers, and sanitizing special characters
- * to ensure only safe characters [A-Za-z0-9_-] are used.
+ * to ensure only safe characters [A-Za-z0-9_.:.-] are used.
  *
  * The double underscore approach eliminates the ambiguity issues of the previous
  * hyphen-based escaping scheme since __ is extremely rare in real API paths.
  * Path parameters {param} are converted to ---param to preserve the parameter location
  * information for accurate replacement during API calls.
+ * Colons are preserved to support Google-style RPC suffixes (e.g., :activate, :cancel).
  *
  * @param method - HTTP method (GET, POST, etc.)
  * @param path - API path (e.g., "/users/{id}")
@@ -100,6 +102,7 @@ function collapseExcessiveHyphens(input: string): string {
  * generateToolId("GET", "/api/resource-name/items") → "GET::api__resource-name__items"
  * generateToolId("POST", "/user-profile/data") → "POST::user-profile__data"
  * generateToolId("GET", "/api/--existing-double/test") → "GET::api__--existing-double__test"
+ * generateToolId("POST", "/api/widgets/{id}:activate") → "POST::api__widgets__---id:activate"
  */
 export function generateToolId(method: string, path: string): string {
   // Clean up the path structure
