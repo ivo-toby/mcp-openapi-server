@@ -45,7 +45,7 @@ export function parseToolId(toolId: string): { method: string; path: string } {
  */
 function sanitizeForToolId(input: string): string {
   let result = input
-    .replace(/[^A-Za-z0-9_.:.-]/g, "") // Remove any character not in the allowed set (now includes dots and colons)
+    .replace(/[^A-Za-z0-9_.\-:]/g, "") // Remove any character not in the allowed set (now includes dots and colons)
     .replace(/_{3,}/g, "__") // Collapse 3+ consecutive underscores to double underscore (preserve path separators)
 
   // Handle hyphen sequences more carefully to preserve legitimate triple-hyphen markers
@@ -90,9 +90,14 @@ function collapseExcessiveHyphens(input: string): string {
  * information for accurate replacement during API calls.
  * Colons are preserved to support Google-style RPC suffixes (e.g., :activate, :cancel).
  *
+ * **Important limitation:** API paths containing double colons (::) are not supported because
+ * :: is used as the internal separator between HTTP method and path in tool IDs.
+ * Single colons (such as in Google RPC-style paths like /widgets/{id}:activate) are fully supported.
+ *
  * @param method - HTTP method (GET, POST, etc.)
  * @param path - API path (e.g., "/users/{id}")
  * @returns Tool ID in format METHOD::pathPart with double underscores as separators
+ * @throws Error if path contains :: (double colon)
  *
  * @example
  * generateToolId("GET", "/users") → "GET::users"
@@ -105,6 +110,14 @@ function collapseExcessiveHyphens(input: string): string {
  * generateToolId("POST", "/api/widgets/{id}:activate") → "POST::api__widgets__---id:activate"
  */
 export function generateToolId(method: string, path: string): string {
+  // Validate that path doesn't contain double colons (reserved as internal separator)
+  if (path.includes("::")) {
+    throw new Error(
+      `API path "${path}" contains double colons (::) which conflicts with the internal tool ID separator. ` +
+        `Single colons for Google RPC-style paths (e.g., /resource:action) are supported.`,
+    )
+  }
+
   // Clean up the path structure
   const cleanPath = path
     .replace(/^\//, "") // Remove leading slash
