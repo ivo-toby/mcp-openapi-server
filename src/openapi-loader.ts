@@ -572,8 +572,34 @@ export class OpenAPISpecLoader {
         }
 
         // Merge requestBody schema into inputSchema
-        if (op.requestBody && "content" in op.requestBody) {
-          const requestBodyObj = op.requestBody as OpenAPIV3.RequestBodyObject
+        if (op.requestBody) {
+          let requestBodyObj: OpenAPIV3.RequestBodyObject
+
+          // Handle requestBody references
+          if ("$ref" in op.requestBody && typeof op.requestBody.$ref === "string") {
+            const refMatch = op.requestBody.$ref.match(/^#\/components\/requestBodies\/(.+)$/)
+            if (refMatch && spec.components?.requestBodies) {
+              const requestBodyName = refMatch[1]
+              const resolvedRequestBody = spec.components.requestBodies[requestBodyName]
+
+              if (resolvedRequestBody && "content" in resolvedRequestBody) {
+                requestBodyObj = resolvedRequestBody as OpenAPIV3.RequestBodyObject
+              } else {
+                console.warn(
+                  `Could not resolve requestBody reference or invalid structure: ${op.requestBody.$ref}`,
+                )
+                continue
+              }
+            } else {
+              console.warn(`Could not parse requestBody reference: ${op.requestBody.$ref}`)
+              continue
+            }
+          } else if ("content" in op.requestBody) {
+            requestBodyObj = op.requestBody as OpenAPIV3.RequestBodyObject
+          } else {
+            console.warn("Skipping requestBody due to invalid structure:", op.requestBody)
+            continue
+          }
 
           // Handle different content types
           let mediaTypeObj: OpenAPIV3.MediaTypeObject | undefined
