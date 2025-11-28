@@ -2,9 +2,7 @@
 
 ## Overview
 
-The `StreamableHttpServerTransport` constructor now accepts an optional `server` parameter, allowing you to pass in an existing `http.Server` instance or let it create one automatically.
-
-## Constructor Signature
+The `StreamableHttpServerTransport` constructor accepts an optional `server` parameter to pass an existing `http.Server` instance.
 
 ```typescript
 constructor(
@@ -17,82 +15,68 @@ constructor(
 
 ## Usage Examples
 
-### Example 1: Default Behavior (No Server Passed)
-
-When you don't pass a server parameter, the transport creates a new HTTP server internally:
+### Basic Usage
 
 ```typescript
-import { StreamableHttpServerTransport } from '@ivotoby/openapi-mcp-server';
+import { OpenAPIServer, StreamableHttpServerTransport } from '@ivotoby/openapi-mcp-server';
 
+const config = {
+  name: "my-api-server",
+  version: "1.0.0",
+  apiBaseUrl: "https://api.example.com",
+  openApiSpec: "https://api.example.com/openapi.json",
+  specInputMethod: "url" as const,
+  transportType: "http" as const,
+  httpPort: 3000,
+  httpHost: "127.0.0.1",
+  endpointPath: "/mcp",
+  toolsMode: "all" as const,
+};
+
+const server = new OpenAPIServer(config);
 const transport = new StreamableHttpServerTransport(3000, '127.0.0.1', '/mcp');
-await transport.start();
+
+await server.start(transport);
 ```
 
-### Example 2: Passing `null`
-
-Explicitly passing `null` also creates a new HTTP server:
-
-```typescript
-import { StreamableHttpServerTransport } from '@ivotoby/openapi-mcp-server';
-
-const transport = new StreamableHttpServerTransport(3000, '127.0.0.1', '/mcp', null);
-await transport.start();
-```
-
-### Example 3: Using an Existing HTTP Server
-
-You can pass an existing `http.Server` instance to reuse it:
+### With External HTTP Server
 
 ```typescript
 import http from 'http';
-import { StreamableHttpServerTransport } from '@ivotoby/openapi-mcp-server';
+import { OpenAPIServer, StreamableHttpServerTransport } from '@ivotoby/openapi-mcp-server';
 
-// Create a custom HTTP server with additional middleware or routes
-const customServer = http.createServer((req, res) => {
-  // Your custom logic here
-  console.log(`Request received: ${req.method} ${req.url}`);
+const externalServer = http.createServer((req, res) => {
+  if (req.url === "/api/custom") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ custom: true }));
+  }
 });
 
-// Pass the custom server to the transport
-const transport = new StreamableHttpServerTransport(3000, '127.0.0.1', '/mcp', customServer);
-await transport.start();
+const server = new OpenAPIServer(config);
+const transport = new StreamableHttpServerTransport(3000, '127.0.0.1', '/mcp', externalServer);
+
+await server.start(transport);
 ```
 
-### Example 4: Sharing a Server with Express
+### With Express
 
 ```typescript
 import express from 'express';
 import http from 'http';
-import { StreamableHttpServerTransport } from '@ivotoby/openapi-mcp-server';
+import { OpenAPIServer, StreamableHttpServerTransport } from '@ivotoby/openapi-mcp-server';
 
 const app = express();
+app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
-// Add your Express routes
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'healthy' });
-});
+const httpServer = http.createServer(app);
+const server = new OpenAPIServer(config);
+const transport = new StreamableHttpServerTransport(3000, '127.0.0.1', '/mcp', httpServer);
 
-// Create HTTP server from Express app
-const server = http.createServer(app);
-
-// Use the same server for MCP transport
-const transport = new StreamableHttpServerTransport(3000, '127.0.0.1', '/mcp', server);
-await transport.start();
-
-console.log('Server running on http://localhost:3000');
-console.log('Express API available at /api/*');
-console.log('MCP endpoint available at /mcp');
+await server.start(transport);
 ```
-
-## Benefits
-
-- **Flexibility**: Reuse existing HTTP servers in your application
-- **Integration**: Easily integrate MCP transport with existing web frameworks (Express, Fastify, etc.)
-- **Backward Compatibility**: Existing code continues to work without any changes
-- **Resource Efficiency**: Share a single HTTP server across multiple services
 
 ## Notes
 
-- When passing an existing server, make sure it's not already listening on a port
-- The transport will call `server.listen()` during `start()`, so the server should not be started before passing it to the transport
-- When `close()` is called, the transport will close the HTTP server
+- External server must not be already listening
+- In external server mode, non-MCP routes pass through to your handlers
+- `/health` endpoint is always available

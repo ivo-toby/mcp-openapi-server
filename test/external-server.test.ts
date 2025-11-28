@@ -353,11 +353,6 @@ describe("External Server - Start with Transport", () => {
 
 /**
  * Integration tests for external server with real HTTP transport
- *
- * Note: When using StreamableHttpServerTransport with OpenAPIServer,
- * you need to call transport.start() before server.start() to ensure
- * the HTTP server is listening. The server.start() method connects the
- * MCP protocol but doesn't automatically start the HTTP server.
  */
 describe("External Server - HTTP Transport Integration", () => {
   let server: OpenAPIServer | null = null
@@ -414,8 +409,6 @@ describe("External Server - HTTP Transport Integration", () => {
     // @ts-expect-error: accessing private member for testing
     server.toolsManager.getOpenApiSpec = vi.fn().mockReturnValue(null)
 
-    // Start transport first to begin listening, then connect the server
-    await transport.start()
     await server.start(transport)
 
     // Verify server is running by checking health endpoint
@@ -450,8 +443,6 @@ describe("External Server - HTTP Transport Integration", () => {
     // @ts-expect-error: accessing private member for testing
     server.toolsManager.getOpenApiSpec = vi.fn().mockReturnValue(null)
 
-    // Start transport first, then connect server
-    await transport.start()
     await server.start(transport)
 
     // Test MCP endpoint responds correctly
@@ -505,8 +496,6 @@ describe("External Server - HTTP Transport Integration", () => {
     // @ts-expect-error: accessing private member for testing
     server.toolsManager.getOpenApiSpec = vi.fn().mockReturnValue(null)
 
-    // Start transport first, then connect server
-    await transport.start()
     await server.start(transport)
 
     // Custom route should work
