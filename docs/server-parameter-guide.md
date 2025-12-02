@@ -77,6 +77,8 @@ await server.start(transport);
 
 ## Notes
 
-- External server must not be already listening
+- When using an external server, you can either:
+  - Let the transport start it by calling `start()`, or
+  - Manually start the external server before calling `start()`, in which case you should handle the `EADDRINUSE` error or skip calling `start()`.
 - In external server mode, non-MCP routes pass through to your handlers
 - `/health` endpoint is always available
