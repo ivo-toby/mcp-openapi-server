@@ -409,6 +409,8 @@ describe("External Server - HTTP Transport Integration", () => {
     // @ts-expect-error: accessing private member for testing
     server.toolsManager.getOpenApiSpec = vi.fn().mockReturnValue(null)
 
+    // Start the transport manually since we're mocking SDK's connect() which normally calls transport.start()
+    await transport.start()
     await server.start(transport)
 
     // Verify server is running by checking health endpoint
@@ -433,8 +435,17 @@ describe("External Server - HTTP Transport Integration", () => {
       toolsMode: "dynamic",
     }
 
+    // Create external server before passing to transport
+    externalServer = http.createServer()
+    externalServer.listen(TEST_PORT, TEST_HOST)
+
     server = new OpenAPIServer(config)
-    transport = new StreamableHttpServerTransport(TEST_PORT, TEST_HOST, MCP_ENDPOINT, externalServer)
+    transport = new StreamableHttpServerTransport(
+      TEST_PORT,
+      TEST_HOST,
+      MCP_ENDPOINT,
+      externalServer,
+    )
 
     // @ts-expect-error: accessing private member for testing
     server.toolsManager.initialize = vi.fn().mockResolvedValue(undefined)
@@ -479,7 +490,9 @@ describe("External Server - HTTP Transport Integration", () => {
         res.end(JSON.stringify({ custom: true }))
         return
       }
+      // Other requests will be handled by the MCP handler attached later.
     })
+    externalServer.listen(TEST_PORT, TEST_HOST)
 
     server = new OpenAPIServer(config)
     transport = new StreamableHttpServerTransport(

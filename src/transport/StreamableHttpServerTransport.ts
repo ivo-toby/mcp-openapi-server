@@ -44,8 +44,10 @@ export class StreamableHttpServerTransport implements Transport {
    * @param port HTTP port to listen on
    * @param host Host to bind to (default: 127.0.0.1)
    * @param endpointPath Endpoint path (default: /mcp)
-   * @param server Optional HTTP server instance. If null or undefined, a new server will be created.
+   * @param server Optional HTTP server instance. If not provided, a new server will be created.
    *               If provided, the transport will attach its request handler to the server.
+   *               Note: When using an external server, ensure handlers are added in the correct order.
+   *               The MCP handler should typically be added after any custom route handlers.
    */
   constructor(
     private port: number,
