@@ -51,7 +51,7 @@ export class StreamableHttpServerTransport implements Transport {
     private port: number,
     private host: string = "127.0.0.1",
     private endpointPath: string = "/mcp",
-    server?: http.Server | null,
+    server?: http.Server,
   ) {
     this.isExternalServer = !!server
     if (server) {
