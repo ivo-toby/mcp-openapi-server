@@ -46,8 +46,11 @@ export class StreamableHttpServerTransport implements Transport {
    * @param endpointPath Endpoint path (default: /mcp)
    * @param server Optional HTTP server instance. If not provided, a new server will be created.
    *               If provided, the transport will attach its request handler to the server.
-   *               Note: When using an external server, ensure handlers are added in the correct order.
-   *               The MCP handler should typically be added after any custom route handlers.
+   *               Note: When using an external server, all handlers added via server.on('request', handler)
+   *               will be called for every request, in the order they were added. Custom handlers should be
+   *               added FIRST and should fully handle their routes (including sending responses) to prevent
+   *               further handlers from running for those requests. The MCP handler should be added after
+   *               custom handlers and will return early for non-MCP paths.
    */
   constructor(
     private port: number,
