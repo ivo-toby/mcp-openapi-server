@@ -45,11 +45,23 @@ await server.start(transport);
 import http from 'http';
 import { OpenAPIServer, StreamableHttpServerTransport } from '@ivotoby/openapi-mcp-server';
 
+// Define your config
+const config = {
+  name: "my-api-server",
+  version: "1.0.0",
+  apiBaseUrl: "https://api.example.com",
+  openApiSpec: "https://api.example.com/openapi.json",
+  specInputMethod: "url" as const,
+  transportType: "http" as const,
+  toolsMode: "all" as const,
+};
+
 const externalServer = http.createServer((req, res) => {
   if (req.url === "/api/custom") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ custom: true }));
   }
+  // Other requests handled by MCP transport
 });
 
 const server = new OpenAPIServer(config);
@@ -64,6 +76,17 @@ await server.start(transport);
 import express from 'express';
 import http from 'http';
 import { OpenAPIServer, StreamableHttpServerTransport } from '@ivotoby/openapi-mcp-server';
+
+// Define your config
+const config = {
+  name: "my-api-server",
+  version: "1.0.0",
+  apiBaseUrl: "https://api.example.com",
+  openApiSpec: "https://api.example.com/openapi.json",
+  specInputMethod: "url" as const,
+  transportType: "http" as const,
+  toolsMode: "all" as const,
+};
 
 const app = express();
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
