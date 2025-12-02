@@ -125,7 +125,16 @@ export class StreamableHttpServerTransport implements Transport {
 
     this.sessions.clear()
 
-    // Close the server
+    // Skip closing the server if it's an external server - let the owner manage its lifecycle
+    if (this.isExternalServer) {
+      this.started = false
+      if (this.onclose) {
+        this.onclose()
+      }
+      return
+    }
+
+    // Close the server (only for internally-created servers)
     return new Promise<void>((resolve, reject) => {
       this.server.close((err) => {
         if (err) {
