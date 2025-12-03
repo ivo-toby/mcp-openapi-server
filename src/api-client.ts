@@ -7,6 +7,20 @@ import { OpenAPISpecLoader } from "./openapi-loader.js"
 import { OpenAPIV3 } from "openapi-types"
 
 /**
+ * Protected HTTP headers that cannot be set via API parameters
+ * These are reserved for security-sensitive operations
+ */
+const PROTECTED_HEADERS = new Set([
+  "authorization",
+  "cookie",
+  "host",
+  "content-length",
+  "transfer-encoding",
+  "connection",
+  "upgrade",
+])
+
+/**
  * Client for making API calls to the backend service
  */
 export class ApiClient {
@@ -175,7 +189,13 @@ export class ApiClient {
           }
           // If it's a header parameter, add to headers and remove from params
           else if (paramLocation === "header") {
-            headerParams[key] = String(value)
+            // Prevent CRLF injection
+            const headerValue = String(value)
+            if (headerValue.includes("\r") || headerValue.includes("\n")) {
+              throw new Error(`Header value for "${key}" contains invalid characters (CR/LF)`)
+            }
+
+            headerParams[key] = headerValue
             delete paramsCopy[key]
           }
         }
@@ -209,6 +229,20 @@ export class ApiClient {
 
       // Get fresh authentication headers
       const authHeaders = await this.authProvider.getAuthHeaders()
+
+      // Verify no header params conflict with auth headers
+      // Only check if auth headers are actually set (non-empty)
+      if (authHeaders && Object.keys(authHeaders).length > 0) {
+        const authHeadersLower = Object.keys(authHeaders).map((k) => k.toLowerCase())
+        for (const headerKey of Object.keys(headerParams)) {
+          if (authHeadersLower.includes(headerKey.toLowerCase())) {
+            throw new Error(
+              `Cannot override authentication header "${headerKey}". ` +
+                `This header is set by the authentication provider.`,
+            )
+          }
+        }
+      }
 
       // Prepare request configuration
       const config: any = {
