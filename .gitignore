@@ -1,6 +1,28 @@
 .aider*
 coverage/*
+
+# Environment variables and secrets
 .env
+.env.local
+.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
+.npmrc
+
+# Build output
 dist/
 node_modules/
+
+# Development artifacts
 OPENAPI_ISSUE*
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
