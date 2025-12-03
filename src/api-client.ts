@@ -7,17 +7,20 @@ import { OpenAPISpecLoader } from "./openapi-loader.js"
 import { OpenAPIV3 } from "openapi-types"
 
 /**
- * Protected HTTP headers that cannot be set via API parameters
- * These are reserved for security-sensitive operations
+ * System-controlled HTTP headers that should NEVER be set via user parameters
+ * These headers are managed by the HTTP client/server and allowing user control
+ * could break HTTP protocol semantics or create security issues
  */
-const PROTECTED_HEADERS = new Set([
-  "authorization",
-  "cookie",
-  "host",
-  "content-length",
-  "transfer-encoding",
-  "connection",
-  "upgrade",
+const SYSTEM_CONTROLLED_HEADERS = new Set([
+  "host", // Controlled by HTTP client based on URL
+  "content-length", // Calculated by HTTP client from body
+  "transfer-encoding", // Managed by HTTP client for chunked encoding
+  "connection", // HTTP connection management
+  "upgrade", // Protocol upgrade (WebSocket, HTTP/2)
+  "te", // Transfer encoding preferences
+  "trailer", // Trailer fields in chunked transfer
+  "proxy-connection", // Proxy connection management
+  "keep-alive", // Connection keep-alive settings
 ])
 
 /**
@@ -189,6 +192,16 @@ export class ApiClient {
           }
           // If it's a header parameter, add to headers and remove from params
           else if (paramLocation === "header") {
+            const headerName = key.toLowerCase()
+
+            // Block system-controlled headers that should never be user-controlled
+            if (SYSTEM_CONTROLLED_HEADERS.has(headerName)) {
+              throw new Error(
+                `Cannot set system-controlled header "${key}". ` +
+                  `This header is managed by the HTTP client and cannot be overridden.`,
+              )
+            }
+
             // Prevent CRLF injection
             const headerValue = String(value)
             if (headerValue.includes("\r") || headerValue.includes("\n")) {
