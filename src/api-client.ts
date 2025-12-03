@@ -291,11 +291,10 @@ export class ApiClient {
         throw new Error(
           `API request failed: ${axiosError.message}${
             axiosError.response
-              ? ` (${axiosError.response.status}: ${
-                  typeof axiosError.response.data === "object"
-                    ? JSON.stringify(axiosError.response.data)
-                    : axiosError.response.data
-                })`
+              ? ` (${axiosError.response.status}: ${this.sanitizeErrorData(
+                  axiosError.response.data,
+                  axiosError.response.status,
+                )})`
               : ""
           }`,
         )
@@ -335,6 +334,31 @@ export class ApiClient {
     }
 
     return result
+  }
+
+  /**
+   * Sanitize error data to prevent information disclosure
+   * Redacts sensitive data from authentication errors and truncates large responses
+   *
+   * @param data - The error response data
+   * @param statusCode - The HTTP status code
+   * @returns Sanitized error data string
+   */
+  private sanitizeErrorData(data: any, statusCode: number): string {
+    // Don't expose auth error details - they may contain sensitive information
+    if (statusCode === 401 || statusCode === 403) {
+      return "[Authentication/Authorization error - details redacted for security]"
+    }
+
+    const dataStr = typeof data === "object" ? JSON.stringify(data) : String(data)
+
+    // Truncate large responses to prevent log flooding and memory issues
+    const MAX_ERROR_LENGTH = 1000
+    if (dataStr.length > MAX_ERROR_LENGTH) {
+      return dataStr.substring(0, MAX_ERROR_LENGTH) + "... [truncated]"
+    }
+
+    return dataStr
   }
 
   /**
@@ -580,11 +604,10 @@ export class ApiClient {
         throw new Error(
           `API request failed: ${axiosError.message}${
             axiosError.response
-              ? ` (${axiosError.response.status}: ${
-                  typeof axiosError.response.data === "object"
-                    ? JSON.stringify(axiosError.response.data)
-                    : axiosError.response.data
-                })`
+              ? ` (${axiosError.response.status}: ${this.sanitizeErrorData(
+                  axiosError.response.data,
+                  axiosError.response.status,
+                )})`
               : ""
           }`,
         )
