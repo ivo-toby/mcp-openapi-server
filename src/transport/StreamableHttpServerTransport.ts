@@ -36,6 +36,7 @@ export class StreamableHttpServerTransport implements Transport {
   private maxBodySize = 4 * 1024 * 1024 // 4MB max request size
   private requestSessionMap: Map<string | number, string> = new Map() // Maps request IDs to session IDs
   private readonly healthCheckPath = "/health"
+  private readonly isExternalServer: boolean // Track if using an external server
 
   /**
    * Initialize a new StreamableHttpServerTransport
@@ -43,13 +44,29 @@ export class StreamableHttpServerTransport implements Transport {
    * @param port HTTP port to listen on
    * @param host Host to bind to (default: 127.0.0.1)
    * @param endpointPath Endpoint path (default: /mcp)
+   * @param server Optional HTTP server instance. If not provided, a new server will be created.
+   *               If provided, the transport will attach its request handler to the server.
+   *               Note: When using an external server, all handlers added via server.on('request', handler)
+   *               will be called for every request, in the order they were added. Custom handlers should be
+   *               added FIRST and should fully handle their routes (including sending responses) to prevent
+   *               further handlers from running for those requests. The MCP handler should be added after
+   *               custom handlers and will return early for non-MCP paths.
    */
   constructor(
     private port: number,
     private host: string = "127.0.0.1",
     private endpointPath: string = "/mcp",
+    server?: http.Server,
   ) {
-    this.server = http.createServer(this.handleRequest.bind(this))
+    this.isExternalServer = !!server
+    if (server) {
+      // External server provided - attach our request handler to it
+      this.server = server
+      this.server.on("request", this.handleRequest.bind(this))
+    } else {
+      // No server provided - create a new one with handler bound
+      this.server = http.createServer(this.handleRequest.bind(this))
+    }
   }
 
   /**
@@ -111,7 +128,16 @@ export class StreamableHttpServerTransport implements Transport {
 
     this.sessions.clear()
 
-    // Close the server
+    // Skip closing the server if it's an external server - let the owner manage its lifecycle
+    if (this.isExternalServer) {
+      this.started = false
+      if (this.onclose) {
+        this.onclose()
+      }
+      return
+    }
+
+    // Close the server (only for internally-created servers)
     return new Promise<void>((resolve, reject) => {
       this.server.close((err) => {
         if (err) {
@@ -266,6 +292,11 @@ export class StreamableHttpServerTransport implements Transport {
 
     // Only handle requests to the MCP endpoint
     if (req.url !== this.endpointPath) {
+      // If using external server, don't respond - let other handlers process the request
+      if (this.isExternalServer) {
+        return
+      }
+      // For internal server, respond with 404
       res.writeHead(404)
       res.end()
       return
