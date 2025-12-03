@@ -7,6 +7,23 @@ import { OpenAPISpecLoader } from "./openapi-loader.js"
 import { OpenAPIV3 } from "openapi-types"
 
 /**
+ * System-controlled HTTP headers that should NEVER be set via user parameters
+ * These headers are managed by the HTTP client/server and allowing user control
+ * could break HTTP protocol semantics or create security issues
+ */
+const SYSTEM_CONTROLLED_HEADERS = new Set([
+  "host", // Controlled by HTTP client based on URL
+  "content-length", // Calculated by HTTP client from body
+  "transfer-encoding", // Managed by HTTP client for chunked encoding
+  "connection", // HTTP connection management
+  "upgrade", // Protocol upgrade (WebSocket, HTTP/2)
+  "te", // Transfer encoding preferences
+  "trailer", // Trailer fields in chunked transfer
+  "proxy-connection", // Proxy connection management
+  "keep-alive", // Connection keep-alive settings
+])
+
+/**
  * Client for making API calls to the backend service
  */
 export class ApiClient {
@@ -30,6 +47,10 @@ export class ApiClient {
   ) {
     this.axiosInstance = axios.create({
       baseURL: baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`,
+      timeout: 30000, // 30 second timeout to prevent indefinite hangs
+      maxContentLength: 50 * 1024 * 1024, // 50MB response body limit
+      maxBodyLength: 50 * 1024 * 1024, // 50MB request body limit
+      maxRedirects: 5, // Limit redirect chains to prevent abuse
     })
 
     // Handle backward compatibility
@@ -171,7 +192,23 @@ export class ApiClient {
           }
           // If it's a header parameter, add to headers and remove from params
           else if (paramLocation === "header") {
-            headerParams[key] = String(value)
+            const headerName = key.toLowerCase()
+
+            // Block system-controlled headers that should never be user-controlled
+            if (SYSTEM_CONTROLLED_HEADERS.has(headerName)) {
+              throw new Error(
+                `Cannot set system-controlled header "${key}". ` +
+                  `This header is managed by the HTTP client and cannot be overridden.`,
+              )
+            }
+
+            // Prevent CRLF injection
+            const headerValue = String(value)
+            if (headerValue.includes("\r") || headerValue.includes("\n")) {
+              throw new Error(`Header value for "${key}" contains invalid characters (CR/LF)`)
+            }
+
+            headerParams[key] = headerValue
             delete paramsCopy[key]
           }
         }
@@ -205,6 +242,20 @@ export class ApiClient {
 
       // Get fresh authentication headers
       const authHeaders = await this.authProvider.getAuthHeaders()
+
+      // Verify no header params conflict with auth headers
+      // Only check if auth headers are actually set (non-empty)
+      if (authHeaders && Object.keys(authHeaders).length > 0) {
+        const authHeadersLower = Object.keys(authHeaders).map((k) => k.toLowerCase())
+        for (const headerKey of Object.keys(headerParams)) {
+          if (authHeadersLower.includes(headerKey.toLowerCase())) {
+            throw new Error(
+              `Cannot override authentication header "${headerKey}". ` +
+                `This header is set by the authentication provider.`,
+            )
+          }
+        }
+      }
 
       // Prepare request configuration
       const config: any = {
@@ -253,11 +304,10 @@ export class ApiClient {
         throw new Error(
           `API request failed: ${axiosError.message}${
             axiosError.response
-              ? ` (${axiosError.response.status}: ${
-                  typeof axiosError.response.data === "object"
-                    ? JSON.stringify(axiosError.response.data)
-                    : axiosError.response.data
-                })`
+              ? ` (${axiosError.response.status}: ${this.sanitizeErrorData(
+                  axiosError.response.data,
+                  axiosError.response.status,
+                )})`
               : ""
           }`,
         )
@@ -297,6 +347,31 @@ export class ApiClient {
     }
 
     return result
+  }
+
+  /**
+   * Sanitize error data to prevent information disclosure
+   * Redacts sensitive data from authentication errors and truncates large responses
+   *
+   * @param data - The error response data
+   * @param statusCode - The HTTP status code
+   * @returns Sanitized error data string
+   */
+  private sanitizeErrorData(data: any, statusCode: number): string {
+    // Don't expose auth error details - they may contain sensitive information
+    if (statusCode === 401 || statusCode === 403) {
+      return "[Authentication/Authorization error - details redacted for security]"
+    }
+
+    const dataStr = typeof data === "object" ? JSON.stringify(data) : String(data)
+
+    // Truncate large responses to prevent log flooding and memory issues
+    const MAX_ERROR_LENGTH = 1000
+    if (dataStr.length > MAX_ERROR_LENGTH) {
+      return dataStr.substring(0, MAX_ERROR_LENGTH) + "... [truncated]"
+    }
+
+    return dataStr
   }
 
   /**
@@ -542,11 +617,10 @@ export class ApiClient {
         throw new Error(
           `API request failed: ${axiosError.message}${
             axiosError.response
-              ? ` (${axiosError.response.status}: ${
-                  typeof axiosError.response.data === "object"
-                    ? JSON.stringify(axiosError.response.data)
-                    : axiosError.response.data
-                })`
+              ? ` (${axiosError.response.status}: ${this.sanitizeErrorData(
+                  axiosError.response.data,
+                  axiosError.response.status,
+                )})`
               : ""
           }`,
         )

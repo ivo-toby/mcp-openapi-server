@@ -145,7 +145,10 @@ export class OpenAPISpecLoader {
       return JSON.parse(specContent) as OpenAPIV3.Document
     } catch (jsonError) {
       try {
-        const yamlResult = yaml.load(specContent) as OpenAPIV3.Document
+        // Use SAFE_SCHEMA to prevent arbitrary code execution via malicious YAML
+        // SAFE_SCHEMA only allows standard YAML types (strings, numbers, booleans, arrays, objects)
+        // and prevents dangerous constructs like !!js/function that could execute code
+        const yamlResult = yaml.load(specContent, { schema: yaml.SAFE_SCHEMA }) as OpenAPIV3.Document
         if (!yamlResult || typeof yamlResult !== "object") {
           throw new Error("YAML parsing resulted in invalid object")
         }

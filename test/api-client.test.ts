@@ -1040,4 +1040,217 @@ describe("Issue #50: Header Parameter Support", () => {
     // In fallback mode without tool definition, parameters go to query/body as before
     expect(capturedConfig.params).toEqual({ page: 1 })
   })
+
+  it("should prevent CRLF injection in header parameter values", async () => {
+    const mockSpecLoader = new OpenAPISpecLoader()
+    const mockApiClient = new ApiClient(
+      "https://api.example.com",
+      new StaticAuthProvider(),
+      mockSpecLoader,
+    )
+
+    const testSpec = {
+      openapi: "3.0.0",
+      info: { title: "Test API", version: "1.0.0" },
+      paths: {
+        "/api/data": {
+          get: {
+            parameters: [
+              {
+                name: "x-custom-header",
+                in: "header",
+                required: false,
+                schema: { type: "string" },
+              },
+            ],
+            responses: { "200": { description: "Success" } },
+          },
+        },
+      },
+    }
+
+    mockApiClient.setOpenApiSpec(testSpec as any)
+    const tools = mockSpecLoader.parseOpenAPISpec(testSpec as any)
+    mockApiClient.setTools(tools)
+
+    const mockAxios = vi.fn().mockImplementation(() => {
+      return Promise.resolve({ data: { success: true } })
+    })
+    ;(mockApiClient as any).axiosInstance = mockAxios
+
+    const toolId = "GET::api__data"
+
+    // Test with \r\n in header value (HTTP header injection attack)
+    await expect(
+      mockApiClient.executeApiCall(toolId, {
+        "x-custom-header": "value\r\nX-Injected-Header: malicious",
+      }),
+    ).rejects.toThrow('Header value for "x-custom-header" contains invalid characters (CR/LF)')
+
+    // Test with just \r
+    await expect(
+      mockApiClient.executeApiCall(toolId, {
+        "x-custom-header": "value\rmalicious",
+      }),
+    ).rejects.toThrow('Header value for "x-custom-header" contains invalid characters (CR/LF)')
+
+    // Test with just \n
+    await expect(
+      mockApiClient.executeApiCall(toolId, {
+        "x-custom-header": "value\nmalicious",
+      }),
+    ).rejects.toThrow('Header value for "x-custom-header" contains invalid characters (CR/LF)')
+  })
+
+  it("should prevent header parameter from overriding auth headers", async () => {
+    const mockSpecLoader = new OpenAPISpecLoader()
+    const mockAuthProvider = new StaticAuthProvider({
+      Authorization: "Bearer real-auth-token",
+    })
+    const mockApiClient = new ApiClient(
+      "https://api.example.com",
+      mockAuthProvider,
+      mockSpecLoader,
+    )
+
+    const testSpec = {
+      openapi: "3.0.0",
+      info: { title: "Test API", version: "1.0.0" },
+      paths: {
+        "/api/data": {
+          get: {
+            parameters: [
+              {
+                name: "Authorization",
+                in: "header",
+                required: false,
+                schema: { type: "string" },
+              },
+            ],
+            responses: { "200": { description: "Success" } },
+          },
+        },
+      },
+    }
+
+    mockApiClient.setOpenApiSpec(testSpec as any)
+    const tools = mockSpecLoader.parseOpenAPISpec(testSpec as any)
+    mockApiClient.setTools(tools)
+
+    const mockAxios = vi.fn().mockImplementation(() => {
+      return Promise.resolve({ data: { success: true } })
+    })
+    ;(mockApiClient as any).axiosInstance = mockAxios
+
+    const toolId = "GET::api__data"
+
+    // Attempt to override Authorization header via parameter
+    await expect(
+      mockApiClient.executeApiCall(toolId, {
+        Authorization: "Bearer malicious-token",
+      }),
+    ).rejects.toThrow('Cannot override authentication header "Authorization"')
+  })
+
+  it("should allow normal header parameters when no conflicts exist", async () => {
+    const mockSpecLoader = new OpenAPISpecLoader()
+    const mockApiClient = new ApiClient(
+      "https://api.example.com",
+      new StaticAuthProvider(),
+      mockSpecLoader,
+    )
+
+    const testSpec = {
+      openapi: "3.0.0",
+      info: { title: "Test API", version: "1.0.0" },
+      paths: {
+        "/api/data": {
+          get: {
+            parameters: [
+              {
+                name: "x-custom-header",
+                in: "header",
+                required: false,
+                schema: { type: "string" },
+              },
+            ],
+            responses: { "200": { description: "Success" } },
+          },
+        },
+      },
+    }
+
+    mockApiClient.setOpenApiSpec(testSpec as any)
+    const tools = mockSpecLoader.parseOpenAPISpec(testSpec as any)
+    mockApiClient.setTools(tools)
+
+    let capturedConfig: any = null
+    const mockAxios = vi.fn().mockImplementation((config) => {
+      capturedConfig = config
+      return Promise.resolve({ data: { success: true } })
+    })
+    ;(mockApiClient as any).axiosInstance = mockAxios
+
+    const toolId = "GET::api__data"
+
+    // Normal header value should work
+    await mockApiClient.executeApiCall(toolId, {
+      "x-custom-header": "normal-value",
+    })
+
+    expect(capturedConfig.headers["x-custom-header"]).toBe("normal-value")
+  })
+
+  it("should prevent setting system-controlled headers", async () => {
+    const mockSpecLoader = new OpenAPISpecLoader()
+    const mockApiClient = new ApiClient(
+      "https://api.example.com",
+      new StaticAuthProvider(),
+      mockSpecLoader,
+    )
+
+    const testSpec = {
+      openapi: "3.0.0",
+      info: { title: "Test API", version: "1.0.0" },
+      paths: {
+        "/api/data": {
+          get: {
+            parameters: [
+              {
+                name: "Host",
+                in: "header",
+                required: false,
+                schema: { type: "string" },
+              },
+            ],
+            responses: { "200": { description: "Success" } },
+          },
+        },
+      },
+    }
+
+    mockApiClient.setOpenApiSpec(testSpec as any)
+    const tools = mockSpecLoader.parseOpenAPISpec(testSpec as any)
+    mockApiClient.setTools(tools)
+
+    const mockAxios = vi.fn().mockImplementation(() => {
+      return Promise.resolve({ data: { success: true } })
+    })
+    ;(mockApiClient as any).axiosInstance = mockAxios
+
+    const toolId = "GET::api__data"
+
+    // Attempt to set Host header (system-controlled)
+    await expect(mockApiClient.executeApiCall(toolId, { Host: "evil.com" })).rejects.toThrow(
+      'Cannot set system-controlled header "Host"',
+    )
+
+    // Test other system-controlled headers
+    testSpec.paths["/api/data"].get.parameters[0].name = "Content-Length"
+    const tools2 = mockSpecLoader.parseOpenAPISpec(testSpec as any)
+    mockApiClient.setTools(tools2)
+    await expect(
+      mockApiClient.executeApiCall("GET::api__data", { "Content-Length": "999" }),
+    ).rejects.toThrow('Cannot set system-controlled header "Content-Length"')
+  })
 })
