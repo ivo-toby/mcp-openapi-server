@@ -30,6 +30,10 @@ export class ApiClient {
   ) {
     this.axiosInstance = axios.create({
       baseURL: baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`,
+      timeout: 30000, // 30 second timeout to prevent indefinite hangs
+      maxContentLength: 50 * 1024 * 1024, // 50MB response body limit
+      maxBodyLength: 50 * 1024 * 1024, // 50MB request body limit
+      maxRedirects: 5, // Limit redirect chains to prevent abuse
     })
 
     // Handle backward compatibility
