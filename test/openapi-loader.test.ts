@@ -575,5 +575,46 @@ paths:
       expect((tool.inputSchema.properties! as any).body.type).toBe("string")
       expect(tool.inputSchema.required).toEqual(["body"])
     })
+
+    it("should handle requestBody with $ref", () => {
+      const specWithRequestBodyRef: OpenAPIV3.Document = {
+        openapi: "3.0.0",
+        info: { title: "Test API", version: "1.0.0" },
+        paths: {
+          "/users": {
+            post: {
+              operationId: "createUser",
+              requestBody: {
+                $ref: "#/components/requestBodies/UserBody",
+              },
+              responses: {},
+            },
+          },
+        },
+        components: {
+          requestBodies: {
+            UserBody: {
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      name: { type: "string" },
+                    },
+                    required: ["name"],
+                  },
+                },
+              },
+            },
+          },
+        },
+      }
+
+      const tools = openAPILoader.parseOpenAPISpec(specWithRequestBodyRef)
+      const tool = Array.from(tools.values())[0]
+
+      expect(tool.inputSchema.properties).toHaveProperty("name")
+      expect(tool.inputSchema.required).toContain("name")
+    })
   })
 })
