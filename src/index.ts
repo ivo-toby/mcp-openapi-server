@@ -69,6 +69,7 @@ export * from "./prompts-manager"
 export * from "./resources-manager"
 export * from "./prompt-types"
 export * from "./resource-types"
+export type { CustomToolDefinition, CustomToolHandler } from "./types/custom-primitives"
 
 // Export the main function for programmatic usage
 export { main }

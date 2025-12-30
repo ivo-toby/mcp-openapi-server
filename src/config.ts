@@ -3,6 +3,7 @@ import { hideBin } from "yargs/helpers"
 import { AuthProvider } from "./auth-provider.js"
 import type { PromptDefinition } from "./prompt-types"
 import type { ResourceDefinition } from "./resource-types"
+import type { CustomToolDefinition } from "./types/custom-primitives"
 
 export interface OpenAPIMCPServerConfig {
   name: string
@@ -35,6 +36,8 @@ export interface OpenAPIMCPServerConfig {
   prompts?: PromptDefinition[]
   /** Resource definitions to expose */
   resources?: ResourceDefinition[]
+  /** Custom tool definitions to expose */
+  extraTools?: CustomToolDefinition[]
   /** Path or URL to prompts JSON/YAML file */
   promptsPath?: string
   /** Inline prompts JSON content */

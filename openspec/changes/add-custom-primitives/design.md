@@ -1,13 +1,32 @@
 # Design: Custom MCP Primitives
 
+## Status Update (Post PR #69)
+
+**⚠️ This design has been partially implemented:**
+- ✅ **Prompts**: `PromptsManager` fully implemented with template rendering
+- ✅ **Resources**: `ResourcesManager` fully implemented with static/dynamic content
+- ✅ **Integration**: Both managers integrated into `OpenAPIServer` with MCP handlers
+- ❌ **Custom Tools**: Not yet implemented - this is the primary focus
+- ❌ **Programmatic APIs**: Managers exist but not exposed publicly
+
+**This design is now scoped to:**
+1. Add custom tools registration (primary goal)
+2. Expose existing PromptsManager/ResourcesManager via public methods
+3. Add `extraTools` configuration option
+
 ## Context
 
 The OpenAPIServer currently generates tools exclusively from OpenAPI specifications. Users need to:
 1. Combine API-generated tools with custom utility tools (data transformation, validation)
-2. Expose templated workflows as prompts that orchestrate multiple API calls
-3. Provide dynamic resources (documentation, schemas) alongside API data
+2. Expose templated workflows as prompts that orchestrate multiple API calls ✅ *Already possible via config*
+3. Provide dynamic resources (documentation, schemas) alongside API data ✅ *Already possible via config*
 
-The MCP protocol supports three primitive types: **tools**, **resources**, and **prompts**. The OpenAPIServer currently only implements tools, and only from OpenAPI specs.
+The MCP protocol supports three primitive types: **tools**, **resources**, and **prompts**.
+
+**Current State:**
+- ✅ Prompts: Implemented via `PromptsManager` (config-based only)
+- ✅ Resources: Implemented via `ResourcesManager` (config-based only)
+- ❌ Custom Tools: Not implemented
 
 ### Constraints
 - Must maintain backward compatibility - existing code continues to work
@@ -23,15 +42,22 @@ The MCP protocol supports three primitive types: **tools**, **resources**, and *
 ## Goals / Non-Goals
 
 ### Goals
-- Enable registration of custom tools with full MCP Tool interface
-- Enable registration of custom resources (text and blob types)
-- Enable registration of custom prompts with argument templating
-- Provide both programmatic API and configuration-based registration
-- Maintain type safety throughout the API surface
-- Update server capabilities dynamically based on registered primitives
+- ✅ **Enable registration of custom resources** - Done in PR #69 via config
+- ✅ **Enable registration of custom prompts** - Done in PR #69 via config
+- ❌ **Enable registration of custom tools** - Primary goal of this change
+- ❌ **Provide programmatic APIs** - Expose existing managers + add tool registration
+- ✅ **Maintain type safety** - Existing managers are type-safe
+- ✅ **Update capabilities dynamically** - Already implemented
+
+### New Goals (This Change)
+1. **Custom Tools Registration**: Add `registerTool()` method to OpenAPIServer
+2. **Programmatic Prompt/Resource APIs**: Add `registerPrompt()` and `registerResource()` methods
+3. **Configuration Support**: Add `extraTools` config option (prompts/resources already support config)
+4. **Seamless Integration**: Custom tools should work alongside OpenAPI-generated tools
 
 ### Non-Goals
 - Not changing OpenAPI tool generation logic
+- Not changing existing PromptsManager or ResourcesManager implementations
 - Not implementing auto-discovery of custom primitives
 - Not adding runtime validation beyond MCP protocol requirements
 - Not implementing primitive lifecycle management (hot reload, versioning)
@@ -74,14 +100,18 @@ The MCP protocol supports three primitive types: **tools**, **resources**, and *
 **Choice**: Use async functions with explicit parameter and return types:
 
 ```typescript
+// CUSTOM TOOLS (new in this change)
 type CustomToolHandler = (args: Record<string, unknown>) => Promise<{
   content: Array<{ type: string; text?: string; [key: string]: unknown }>;
   isError?: boolean;
 }>
 
-type CustomResourceHandler = () => Promise<TextResourceContents | BlobResourceContents>
+// PROMPTS (already implemented - using existing pattern)
+// PromptsManager uses template-based rendering, not custom handlers
+// Templates use {{argName}} syntax
 
-type CustomPromptHandler = (args: Record<string, string>) => Promise<PromptMessage[]>
+// RESOURCES (already implemented - using existing pattern)
+// ResourcesManager uses contentProvider: () => Promise<string | {blob: string}>
 ```
 
 **Rationale**:
@@ -89,6 +119,7 @@ type CustomPromptHandler = (args: Record<string, string>) => Promise<PromptMessa
 - Explicit return types ensure type safety
 - Simple parameter passing - handlers don't need MCP protocol knowledge
 - Error handling via exceptions (caught by server)
+- **Reuse existing patterns** from PromptsManager/ResourcesManager
 
 **Alternatives Considered**:
 - **Sync handlers**: Would block event loop for long operations
@@ -146,24 +177,33 @@ type CustomPromptHandler = (args: Record<string, string>) => Promise<PromptMessa
 
 ## Architecture
 
-### Component Structure
+### Component Structure (Updated After PR #69)
 
 ```
 OpenAPIServer
-├─ customTools: Map<string, CustomToolDefinition>
-├─ customResources: Map<string, CustomResourceDefinition>
-├─ customPrompts: Map<string, CustomPromptDefinition>
-├─ registerTool(name, definition, handler)
-├─ registerResource(uri, definition, handler)
-├─ registerPrompt(name, definition, handler)
+├─ toolsManager: ToolsManager (existing - OpenAPI tools)
+├─ promptsManager?: PromptsManager (existing ✅ - from PR #69)
+├─ resourcesManager?: ResourcesManager (existing ✅ - from PR #69)
+├─ customTools: Map<string, CustomToolDefinition> (NEW ❌)
+│
+├─ PUBLIC METHODS (NEW):
+│  ├─ registerTool(name, definition, handler) → add to customTools
+│  ├─ registerPrompt(prompt) → delegate to promptsManager.addPrompt()
+│  └─ registerResource(resource) → delegate to resourcesManager.addResource()
+│
 └─ initializeHandlers()
-   ├─ ListToolsRequestSchema → [...openApiTools, ...customTools]
-   ├─ CallToolRequestSchema → execute tool or custom handler
-   ├─ ListResourcesRequestSchema → customResources
-   ├─ ReadResourceRequestSchema → execute resource handler
-   ├─ ListPromptsRequestSchema → customPrompts
-   └─ GetPromptRequestSchema → execute prompt handler
+   ├─ ListToolsRequestSchema → [...openApiTools, ...customTools] (UPDATED)
+   ├─ CallToolRequestSchema → check OpenAPI tools, then customTools (UPDATED)
+   ├─ ListPromptsRequestSchema → promptsManager.getAllPrompts() (existing ✅)
+   ├─ GetPromptRequestSchema → promptsManager.getPrompt() (existing ✅)
+   ├─ ListResourcesRequestSchema → resourcesManager.getAllResources() (existing ✅)
+   └─ ReadResourceRequestSchema → resourcesManager.readResource() (existing ✅)
 ```
+
+**Key Changes:**
+- ✅ Prompts/Resources managers already exist - just expose via public methods
+- ❌ Custom tools storage and registration is NEW
+- Tool execution updated to check both OpenAPI + custom tools
 
 ### Data Flow
 
@@ -174,17 +214,18 @@ OpenAPIServer
 4. Execute handler with `args`
 5. Wrap result in MCP response format
 
-**Custom Resource Read**:
+**Resource Read** (already implemented ✅):
 1. Client sends `resources/read` request
-2. Server looks up URI in `customResources` map
-3. Execute handler
-4. Return TextResourceContents or BlobResourceContents
+2. `registerResource()` → `resourcesManager.addResource()`
+3. Server handler calls `resourcesManager.readResource(uri)`
+4. ResourcesManager executes contentProvider or returns static content
+5. Return TextResourceContents or BlobResourceContents
 
-**Custom Prompt Get**:
+**Prompt Get** (already implemented ✅):
 1. Client sends `prompts/get` request
-2. Server looks up name in `customPrompts` map
-3. Validate required arguments present
-4. Execute handler with arguments
+2. `registerPrompt()` → `promptsManager.addPrompt()`
+3. Server handler calls `promptsManager.getPrompt(name, args)`
+4. PromptsManager validates args and renders template with `{{argName}}` syntax
 5. Return PromptMessage array
 
 ## Risks / Trade-offs
@@ -236,52 +277,102 @@ If critical issues found:
 
 ## Implementation Notes
 
-### File Organization
+### File Organization (Updated)
 ```
 src/
 ├─ types/
-│  └─ custom-primitives.ts          # New: Type definitions
-├─ server.ts                         # Modified: Add registration + handlers
-├─ config.ts                         # Modified: Add config fields
-└─ index.ts                          # Modified: Export new types
+│  └─ custom-primitives.ts          # New: CustomToolDefinition type
+├─ server.ts                         # Modified: Add customTools Map + registration methods
+├─ config.ts                         # Modified: Add extraTools field
+├─ prompts-manager.ts                # Existing ✅ (no changes)
+├─ resources-manager.ts              # Existing ✅ (no changes)
+└─ index.ts                          # Modified: Export CustomToolDefinition
 ```
 
 ### Key Implementation Details
 
-1. **Registration Method Template**:
+1. **Initialize Managers Early** (to allow later registration):
 ```typescript
+constructor(config: OpenAPIMCPServerConfig) {
+  // Always initialize managers (even if config empty) to allow registerPrompt/Resource()
+  this.promptsManager = new PromptsManager({ prompts: config.prompts || [] })
+  this.resourcesManager = new ResourcesManager({ resources: config.resources || [] })
+  this.customTools = new Map()  // NEW
+
+  // Load extraTools from config if provided
+  if (config.extraTools) {
+    for (const tool of config.extraTools) {
+      this.customTools.set(tool.name, tool)
+    }
+  }
+}
+```
+
+2. **Registration Methods** (delegate to existing managers + new customTools):
+```typescript
+// NEW - custom tools
 registerTool(name: string, definition: CustomToolDefinition, handler: CustomToolHandler): void {
   if (this.customTools.has(name)) {
     throw new Error(`Tool with name '${name}' already exists`)
   }
   this.customTools.set(name, { ...definition, handler })
 }
+
+// NEW - expose existing PromptsManager
+registerPrompt(prompt: PromptDefinition): void {
+  this.promptsManager.addPrompt(prompt)
+}
+
+// NEW - expose existing ResourcesManager
+registerResource(resource: ResourceDefinition): void {
+  this.resourcesManager.addResource(resource)
+}
 ```
 
-2. **Handler Execution Template**:
+3. **Update Tool Handlers**:
 ```typescript
-const toolInfo = this.customTools.get(name)
-if (toolInfo) {
-  try {
-    const result = await toolInfo.handler(params)
-    return result
-  } catch (error) {
-    return { content: [{ type: "text", text: `Error: ${error.message}` }], isError: true }
+// tools/list - merge OpenAPI + custom tools
+this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+  const openApiTools = this.toolsManager.getAllTools()
+  const customTools = Array.from(this.customTools.values()).map(t => ({
+    name: t.name,
+    description: t.description,
+    inputSchema: t.inputSchema
+  }))
+  return { tools: [...openApiTools, ...customTools] }
+})
+
+// tools/call - check OpenAPI first, then custom
+this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  // ... existing OpenAPI tool lookup ...
+
+  // If not found in OpenAPI tools, check custom tools
+  const customTool = this.customTools.get(idOrName)
+  if (customTool) {
+    try {
+      return await customTool.handler(params || {})
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: `Error: ${error.message}` }],
+        isError: true
+      }
+    }
   }
-}
+
+  throw new Error(`Tool not found: ${idOrName}`)
+})
 ```
 
-3. **Capabilities Update**:
+4. **Capabilities** (already correct ✅):
 ```typescript
-const capabilities: ServerCapabilities = {
-  tools: { list: true, execute: true }
+// Capabilities are already dynamic in constructor
+if (this.promptsManager) {
+  capabilities.prompts = {}
 }
-if (this.customResources.size > 0) {
-  capabilities.resources = { list: true }
+if (this.resourcesManager) {
+  capabilities.resources = {}
 }
-if (this.customPrompts.size > 0) {
-  capabilities.prompts = { list: true }
-}
+// No changes needed - this already works
 ```
 
 ## Open Questions
