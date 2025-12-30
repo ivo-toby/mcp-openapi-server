@@ -1,0 +1,29 @@
+{
+  "name": "@ivotoby/custom-tools-example",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Example showing custom tools, prompts, and resources with OpenAPI MCP Server",
+  "main": "dist/index.js",
+  "bin": {
+    "custom-tools-example": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc && node dist/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "openapi",
+    "custom-tools",
+    "example"
+  ],
+  "dependencies": {
+    "@ivotoby/openapi-mcp-server": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.5",
+    "typescript": "^5.3.3"
+  }
+}

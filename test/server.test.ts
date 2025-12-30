@@ -441,6 +441,7 @@ describe("OpenAPIServer", () => {
 
   it("should advertise tools capabilities in initialization response", () => {
     // Verify the server was constructed with the correct capabilities
+    // Note: prompts and resources are always declared to support dynamic registration
     expect(Server).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -449,6 +450,8 @@ describe("OpenAPIServer", () => {
             list: true,
             execute: true,
           },
+          prompts: {},
+          resources: {},
         },
       }),
     )

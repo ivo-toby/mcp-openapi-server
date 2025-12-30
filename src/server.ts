@@ -52,13 +52,10 @@ export class OpenAPIServer {
         list: true,
         execute: true,
       },
-    }
-    // Prompts and resources capabilities are always available now
-    if (this.promptsManager.count > 0) {
-      capabilities.prompts = {}
-    }
-    if (this.resourcesManager.count > 0) {
-      capabilities.resources = {}
+      // Always declare prompts and resources capabilities
+      // since they can be registered dynamically after construction
+      prompts: {},
+      resources: {},
     }
 
     this.server = new Server(
