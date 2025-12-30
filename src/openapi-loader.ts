@@ -1,7 +1,7 @@
 import { OpenAPIV3 } from "openapi-types"
 import { readFile } from "fs/promises"
 import { Tool } from "@modelcontextprotocol/sdk/types.js"
-import yaml from "js-yaml"
+import yaml, { CORE_SCHEMA } from "js-yaml"
 import crypto from "crypto"
 import { REVISED_COMMON_WORDS_TO_REMOVE, WORD_ABBREVIATIONS } from "./utils/abbreviations.js"
 import { generateToolId } from "./utils/tool-id.js"
@@ -145,7 +145,12 @@ export class OpenAPISpecLoader {
       return JSON.parse(specContent) as OpenAPIV3.Document
     } catch (jsonError) {
       try {
-        const yamlResult = yaml.load(specContent) as OpenAPIV3.Document
+        // Use CORE_SCHEMA to prevent arbitrary code execution via malicious YAML
+        // CORE_SCHEMA only allows standard YAML types (strings, numbers, booleans, arrays, objects)
+        // and prevents dangerous constructs like !!js/function that could execute code
+        const yamlResult = yaml.load(specContent, {
+          schema: CORE_SCHEMA,
+        }) as OpenAPIV3.Document
         if (!yamlResult || typeof yamlResult !== "object") {
           throw new Error("YAML parsing resulted in invalid object")
         }

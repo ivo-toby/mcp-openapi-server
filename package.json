@@ -35,8 +35,8 @@
     "test:coverage": "vitest run --coverage --config vitest.config.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.16.0",
-    "axios": "^1.10.0",
+    "@modelcontextprotocol/sdk": "^1.24.1",
+    "axios": "^1.12.0",
     "openapi-types": "^12.1.3",
     "yargs": "^17.7.2"
   },

@@ -31,6 +31,7 @@ vi.mock("js-yaml", async () => {
     },
     // Provide other exports as well, consistent with the actual module, in case they are ever used.
     load: vi.fn((content: string) => realLoadFn(content)),
+    CORE_SCHEMA: actualJsYamlMod.CORE_SCHEMA, // Required for secure YAML parsing
     // safeLoad: vi.fn((content: string) => actualJsYamlMod.safeLoad(content)), // Temporarily remove if causing type issues
     // Add other js-yaml exports if necessary for full fidelity, though 'load' is the key one here.
   }
