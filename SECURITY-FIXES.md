@@ -57,7 +57,7 @@ This document details 9 atomic security commits addressing **27 identified secur
 - **Risk:** Malicious YAML could poison Object.prototype
 - **Fix:** `npm audit fix` updated to patched version
 - **Impact:** Reduced (further hardened in Commit 5)
-- **Verification:** Combined with SAFE_SCHEMA in Commit 5 for defense-in-depth
+- **Verification:** Combined with CORE_SCHEMA in Commit 5 for defense-in-depth
 
 #### 5. **Multiple Development Dependency Vulnerabilities (LOW-MODERATE)**
 - eslint plugin ReDoS vulnerabilities
@@ -268,14 +268,14 @@ npm test
   - External URLs (`--spec-url`)
   - Untrusted files (`--spec-path`)
   - Standard input (`--spec-stdin`)
-- **Fix:** Added SAFE_SCHEMA option
+- **Fix:** Added CORE_SCHEMA option
   ```typescript
-  yaml.load(specContent, { schema: yaml.SAFE_SCHEMA })
+  yaml.load(specContent, { schema: CORE_SCHEMA })
   ```
 - **Impact:** Complete mitigation of YAML code execution attacks
-- **Location:** `src/openapi-loader.ts:151`
+- **Location:** `src/openapi-loader.ts:151-152`
 
-#### 2. **SAFE_SCHEMA Restrictions (Defense-in-Depth)**
+#### 2. **CORE_SCHEMA Restrictions (Defense-in-Depth)**
 - **Allowed Types:** strings, numbers, booleans, arrays, objects
 - **Blocked Constructs:**
   - `!!js/function` (JavaScript function execution)
@@ -284,12 +284,12 @@ npm test
   - Merge key prototype pollution
 - **Impact:** OpenAPI specs limited to safe data structures
 
-#### 3. **Prototype Pollution (Addressed with SAFE_SCHEMA)**
+#### 3. **Prototype Pollution (Addressed with CORE_SCHEMA)**
 - **Issue:** js-yaml vulnerable to prototype pollution (GHSA-mh29-5h37-fv8m)
-- **Combined Fix:** SAFE_SCHEMA + updated js-yaml version
+- **Combined Fix:** CORE_SCHEMA + updated js-yaml version
 - **Defense Layers:**
   1. Updated js-yaml (Commit 1)
-  2. SAFE_SCHEMA enforcement (This commit)
+  2. CORE_SCHEMA enforcement (This commit)
 - **Impact:** Defense-in-depth against prototype pollution
 
 ### Testing
