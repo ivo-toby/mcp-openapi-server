@@ -1,6 +1,8 @@
 import yargs from "yargs"
 import { hideBin } from "yargs/helpers"
 import { AuthProvider } from "./auth-provider.js"
+import type { PromptDefinition } from "./prompt-types"
+import type { ResourceDefinition } from "./resource-types"
 
 export interface OpenAPIMCPServerConfig {
   name: string
@@ -29,6 +31,18 @@ export interface OpenAPIMCPServerConfig {
   /** Tools loading mode: 'all' or 'dynamic' */
   toolsMode: "all" | "dynamic" | "explicit"
   disableAbbreviation?: boolean
+  /** Prompt definitions to expose */
+  prompts?: PromptDefinition[]
+  /** Resource definitions to expose */
+  resources?: ResourceDefinition[]
+  /** Path or URL to prompts JSON/YAML file */
+  promptsPath?: string
+  /** Inline prompts JSON content */
+  promptsInline?: string
+  /** Path or URL to resources JSON/YAML file */
+  resourcesPath?: string
+  /** Inline resources JSON content */
+  resourcesInline?: string
 }
 
 /**
@@ -136,6 +150,22 @@ export function loadConfig(): OpenAPIMCPServerConfig {
       type: "boolean",
       description: "Disable name optimization",
     })
+    .option("prompts", {
+      type: "string",
+      description: "Path or URL to prompts JSON/YAML file",
+    })
+    .option("prompts-inline", {
+      type: "string",
+      description: "Provide prompts directly as JSON string",
+    })
+    .option("resources", {
+      type: "string",
+      description: "Path or URL to resources JSON/YAML file",
+    })
+    .option("resources-inline", {
+      type: "string",
+      description: "Provide resources directly as JSON string",
+    })
     .help()
     .parseSync()
 
@@ -239,5 +269,9 @@ export function loadConfig(): OpenAPIMCPServerConfig {
     includeOperations: argv.operation as string[] | undefined,
     toolsMode,
     disableAbbreviation: disableAbbreviation ? true : undefined,
+    promptsPath: (argv.prompts as string | undefined) || process.env.PROMPTS_PATH,
+    promptsInline: (argv["prompts-inline"] as string | undefined) || process.env.PROMPTS_INLINE,
+    resourcesPath: (argv.resources as string | undefined) || process.env.RESOURCES_PATH,
+    resourcesInline: (argv["resources-inline"] as string | undefined) || process.env.RESOURCES_INLINE,
   }
 }

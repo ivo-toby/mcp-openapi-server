@@ -5,6 +5,7 @@ import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
 import { OpenAPIServer } from "./server"
 import { loadConfig } from "./config"
 import { StreamableHttpServerTransport } from "./transport/StreamableHttpServerTransport"
+import { loadPrompts, loadResources } from "./content-loader"
 
 /**
  * Main entry point for CLI usage
@@ -12,6 +13,24 @@ import { StreamableHttpServerTransport } from "./transport/StreamableHttpServerT
 async function main(): Promise<void> {
   try {
     const config = loadConfig()
+
+    // Load prompts from file/URL/inline if specified
+    if (config.promptsPath || config.promptsInline) {
+      const prompts = await loadPrompts(config.promptsPath, config.promptsInline)
+      if (prompts) {
+        config.prompts = prompts
+        console.error(`Loaded ${prompts.length} prompt(s)`)
+      }
+    }
+
+    // Load resources from file/URL/inline if specified
+    if (config.resourcesPath || config.resourcesInline) {
+      const resources = await loadResources(config.resourcesPath, config.resourcesInline)
+      if (resources) {
+        config.resources = resources
+        console.error(`Loaded ${resources.length} resource(s)`)
+      }
+    }
 
     const server = new OpenAPIServer(config)
 
@@ -46,6 +65,10 @@ export * from "./tools-manager"
 export * from "./openapi-loader"
 export * from "./auth-provider"
 export * from "./transport/StreamableHttpServerTransport"
+export * from "./prompts-manager"
+export * from "./resources-manager"
+export * from "./prompt-types"
+export * from "./resource-types"
 
 // Export the main function for programmatic usage
 export { main }

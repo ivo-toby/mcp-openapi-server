@@ -2,7 +2,7 @@
 
 [![smithery badge](https://smithery.ai/badge/@ivo-toby/mcp-openapi-server)](https://smithery.ai/server/@ivo-toby/mcp-openapi-server)
 
-A Model Context Protocol (MCP) server that exposes OpenAPI endpoints as MCP resources. This server allows Large Language Models to discover and interact with REST APIs defined by OpenAPI specifications through the MCP protocol.
+A Model Context Protocol (MCP) server that exposes OpenAPI endpoints as MCP tools, along with optional support for MCP prompts and resources. This server allows Large Language Models to discover and interact with REST APIs defined by OpenAPI specifications through the MCP protocol.
 
 ## 📖 Documentation
 
@@ -128,6 +128,10 @@ The server can be configured through environment variables or command line argum
 - `ENDPOINT_PATH` - Endpoint path for HTTP transport (default: "/mcp")
 - `TOOLS_MODE` - Tools loading mode: "all" (load all endpoint-based tools), "dynamic" (load only meta-tools), or "explicit" (load only tools specified in includeTools) (default: "all")
 - `DISABLE_ABBREVIATION` - Disable name optimization (this could throw errors when name is > 64 chars)
+- `PROMPTS_PATH` - Path or URL to prompts JSON/YAML file
+- `PROMPTS_INLINE` - Provide prompts directly as JSON string
+- `RESOURCES_PATH` - Path or URL to resources JSON/YAML file
+- `RESOURCES_INLINE` - Provide resources directly as JSON string
 
 ### Command Line Arguments
 
@@ -274,6 +278,122 @@ npx @ivotoby/openapi-mcp-server --api-base-url https://api.example.com --openapi
 
 # Load only POST operations
 npx @ivotoby/openapi-mcp-server --api-base-url https://api.example.com --openapi-spec https://api.example.com/openapi.json --operation post
+```
+
+## Prompts and Resources
+
+In addition to exposing OpenAPI endpoints as **tools**, this server can expose **prompts** (reusable templates) and **resources** (static content) via the MCP protocol.
+
+### What Are Prompts and Resources?
+
+| Feature | Purpose | Use Case |
+|---------|---------|----------|
+| **Tools** | API endpoints for the AI to execute | Making API calls |
+| **Prompts** | Templated messages with argument substitution | Reusable workflow templates |
+| **Resources** | Read-only content for context | API documentation, schemas |
+
+### Loading Prompts
+
+Prompts can be loaded from files, URLs, or inline JSON:
+
+```bash
+# Load from local file
+npx @ivotoby/openapi-mcp-server \
+  --api-base-url https://api.example.com \
+  --openapi-spec https://api.example.com/openapi.json \
+  --prompts ./prompts.json
+
+# Load from URL
+npx @ivotoby/openapi-mcp-server \
+  --api-base-url https://api.example.com \
+  --openapi-spec https://api.example.com/openapi.json \
+  --prompts https://example.com/mcp/prompts.json
+
+# Inline JSON
+npx @ivotoby/openapi-mcp-server \
+  --api-base-url https://api.example.com \
+  --openapi-spec https://api.example.com/openapi.json \
+  --prompts-inline '[{"name":"greet","title":"Greeting","template":"Hello {{name}}!"}]'
+```
+
+**Prompts File Format (JSON):**
+
+```json
+[
+  {
+    "name": "api_request",
+    "title": "API Request Helper",
+    "description": "Helps generate API request templates",
+    "arguments": [
+      { "name": "endpoint", "description": "API endpoint path", "required": true },
+      { "name": "method", "description": "HTTP method", "required": false }
+    ],
+    "template": "Create a {{method}} request to {{endpoint}} with proper parameters."
+  }
+]
+```
+
+### Loading Resources
+
+Resources can be loaded from files, URLs, or inline JSON:
+
+```bash
+# Load from local file
+npx @ivotoby/openapi-mcp-server \
+  --api-base-url https://api.example.com \
+  --openapi-spec https://api.example.com/openapi.json \
+  --mcp-resources ./resources.json
+
+# Load from URL
+npx @ivotoby/openapi-mcp-server \
+  --api-base-url https://api.example.com \
+  --openapi-spec https://api.example.com/openapi.json \
+  --mcp-resources https://example.com/mcp/resources.json
+
+# Inline JSON
+npx @ivotoby/openapi-mcp-server \
+  --api-base-url https://api.example.com \
+  --openapi-spec https://api.example.com/openapi.json \
+  --mcp-resources-inline '[{"uri":"docs://readme","name":"readme","text":"# Welcome"}]'
+```
+
+**Resources File Format (JSON):**
+
+```json
+[
+  {
+    "uri": "docs://api/overview",
+    "name": "api-overview",
+    "title": "API Overview",
+    "description": "Overview of the API",
+    "mimeType": "text/markdown",
+    "text": "# API Overview\n\nThis API provides..."
+  }
+]
+```
+
+### Combining Tools, Prompts, and Resources
+
+```bash
+npx @ivotoby/openapi-mcp-server \
+  --api-base-url https://api.example.com \
+  --openapi-spec https://api.example.com/openapi.json \
+  --prompts ./prompts.json \
+  --mcp-resources ./resources.json \
+  --transport http \
+  --port 3000
+```
+
+With this configuration, the server advertises capabilities for all three:
+
+```json
+{
+  "capabilities": {
+    "tools": { "list": true, "execute": true },
+    "prompts": {},
+    "resources": {}
+  }
+}
 ```
 
 ## Transport Types
@@ -427,6 +547,113 @@ const config = {
   toolsMode: "explicit" as const,
   includeTools: ["GET::users", "POST::users"], // Only these exact tools
   // includeTags, includeResources, includeOperations are ignored in explicit mode
+}
+```
+
+### Configuring Prompts and Resources
+
+Expose reusable prompts and static resources alongside your API tools:
+
+```typescript
+import { OpenAPIServer } from "@ivotoby/openapi-mcp-server"
+
+const config = {
+  name: "my-api-server",
+  version: "1.0.0",
+  apiBaseUrl: "https://api.example.com",
+  openApiSpec: "https://api.example.com/openapi.json",
+  specInputMethod: "url" as const,
+  transportType: "stdio" as const,
+  toolsMode: "all" as const,
+
+  // Define prompts with argument templates
+  prompts: [
+    {
+      name: "api_request",
+      title: "API Request Helper",
+      description: "Helps generate API request templates",
+      arguments: [
+        { name: "endpoint", description: "API endpoint path", required: true },
+        { name: "method", description: "HTTP method", required: false },
+      ],
+      template: "Create a {{method}} request to {{endpoint}} with proper parameters.",
+    },
+  ],
+
+  // Define resources with static content
+  resources: [
+    {
+      uri: "docs://api/overview",
+      name: "api-overview",
+      title: "API Overview",
+      description: "Overview of the API capabilities",
+      mimeType: "text/markdown",
+      text: "# API Overview\n\nThis API provides...",
+    },
+  ],
+}
+
+const server = new OpenAPIServer(config)
+```
+
+#### Dynamic Prompt and Resource Management
+
+You can also add prompts and resources dynamically after server creation:
+
+```typescript
+const server = new OpenAPIServer(config)
+
+// Add prompts dynamically
+const promptsManager = server.getPromptsManager()
+if (promptsManager) {
+  promptsManager.addPrompt({
+    name: "debug_error",
+    title: "Error Debugger",
+    template: "Debug this API error: {{error_message}}",
+  })
+}
+
+// Add resources dynamically
+const resourcesManager = server.getResourcesManager()
+if (resourcesManager) {
+  resourcesManager.addResource({
+    uri: "docs://changelog",
+    name: "changelog",
+    title: "API Changelog",
+    mimeType: "text/markdown",
+    text: "# Changelog\n\n## v1.0.0\n- Initial release",
+  })
+}
+```
+
+#### Prompt Definition Format
+
+```typescript
+interface PromptDefinition {
+  name: string            // Unique identifier
+  title?: string          // Human-readable display title
+  description?: string    // Description of the prompt
+  arguments?: {           // Template arguments
+    name: string
+    description?: string
+    required?: boolean
+  }[]
+  template: string        // Template with {{argName}} placeholders
+}
+```
+
+#### Resource Definition Format
+
+```typescript
+interface ResourceDefinition {
+  uri: string             // Unique URI identifier
+  name: string            // Resource name
+  title?: string          // Human-readable display title
+  description?: string    // Description of the resource
+  mimeType?: string       // Content MIME type
+  text?: string           // Static text content
+  blob?: string           // Static binary content (base64)
+  contentProvider?: () => Promise<string | { blob: string }>  // Dynamic content
 }
 ```
 
@@ -652,6 +879,12 @@ A: Use the `--tool`, `--tag`, `--resource`, and `--operation` flags with `--tool
 
 **Q: When should I use dynamic mode?**
 A: Dynamic mode provides meta-tools (`list-api-endpoints`, `get-api-endpoint-schema`, `invoke-api-endpoint`) to inspect and interact with endpoints without preloading all operations, which is useful for large or changing APIs.
+
+**Q: What are prompts and resources?**
+A: **Prompts** are reusable message templates with argument placeholders (e.g., `{{name}}`) that can be retrieved via the MCP `prompts/get` method. **Resources** are static or dynamic content (text or binary) that can be read via the MCP `resources/read` method. Both are optional capabilities you can configure alongside tools.
+
+**Q: How do I expose prompts and resources from the CLI?**
+A: Use `--prompts <path|url>` for prompts and `--resources <path|url>` for resources. You can also use `--prompts-inline` and `--resources-inline` for inline JSON. See the "Prompts and Resources" section in the User Guide for details.
 
 **Q: How do I specify custom headers for API requests?**
 A: Use the `--headers` flag or `API_HEADERS` environment variable with `key:value` pairs separated by commas for CLI usage. For library usage, use the `headers` config option or implement an `AuthProvider` for dynamic headers.
