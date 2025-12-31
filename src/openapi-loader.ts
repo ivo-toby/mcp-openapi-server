@@ -464,10 +464,11 @@ export class OpenAPISpecLoader {
 
         const nameSource = op.operationId || op.summary || `${method.toUpperCase()} ${path}`
         const name = this.abbreviateOperationId(nameSource)
+        const description = [op.summary, op.description].filter(x => x).join("\n");
 
         const tool: ExtendedTool = {
           name,
-          description: op.description || `Make a ${method.toUpperCase()} request to ${path}`,
+          description: description || `Make a ${method.toUpperCase()} request to ${path}`,
           inputSchema: {
             type: "object",
             properties: {},
