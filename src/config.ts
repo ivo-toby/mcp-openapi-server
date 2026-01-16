@@ -43,6 +43,8 @@ export interface OpenAPIMCPServerConfig {
   resourcesPath?: string
   /** Inline resources JSON content */
   resourcesInline?: string
+  /** Log verbosity */
+  verbose?: boolean
 }
 
 /**
@@ -239,9 +241,7 @@ export function loadConfig(): OpenAPIMCPServerConfig {
     if (normalized === "all" || normalized === "dynamic" || normalized === "explicit") {
       toolsMode = normalized
     } else {
-      throw new Error(
-        "Invalid tools mode. Expected one of: all, dynamic, explicit",
-      )
+      throw new Error("Invalid tools mode. Expected one of: all, dynamic, explicit")
     }
   }
 
@@ -272,6 +272,7 @@ export function loadConfig(): OpenAPIMCPServerConfig {
     promptsPath: (argv.prompts as string | undefined) || process.env.PROMPTS_PATH,
     promptsInline: (argv["prompts-inline"] as string | undefined) || process.env.PROMPTS_INLINE,
     resourcesPath: (argv.resources as string | undefined) || process.env.RESOURCES_PATH,
-    resourcesInline: (argv["resources-inline"] as string | undefined) || process.env.RESOURCES_INLINE,
+    resourcesInline:
+      (argv["resources-inline"] as string | undefined) || process.env.RESOURCES_INLINE,
   }
 }
