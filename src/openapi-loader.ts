@@ -467,7 +467,7 @@ export class OpenAPISpecLoader {
 
         const tool: ExtendedTool = {
           name,
-          description: op.description || `Make a ${method.toUpperCase()} request to ${path}`,
+          description: op.description || op.summary || `Make a ${method.toUpperCase()} request to ${path}`,
           inputSchema: {
             type: "object",
             properties: {},
