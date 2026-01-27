@@ -1,89 +1,90 @@
-# Implementation Tasks
+# Implementation Tasks (Updated Post PR #69)
+
+**Status**: Prompts & Resources already implemented. Focus on Custom Tools + Programmatic APIs.
 
 ## 1. Type Definitions
-- [ ] 1.1 Create `src/types/custom-primitives.ts` with TypeScript interfaces
-- [ ] 1.2 Define `CustomToolDefinition` interface with handler signature
-- [ ] 1.3 Define `CustomResourceDefinition` interface with handler signature
-- [ ] 1.4 Define `CustomPromptDefinition` interface with handler signature
-- [ ] 1.5 Export handler result types for all three primitives
+- [x] 1.1 Create `src/types/custom-primitives.ts` file
+- [x] 1.2 Define `CustomToolDefinition` interface with handler signature
+- [x] 1.3 Define `CustomToolHandler` type for tool execution
+- [x] 1.4 Export types from `src/index.ts`
 
 ## 2. Configuration Schema Updates
-- [ ] 2.1 Add `extraTools` field to `OpenAPIMCPServerConfig` interface
-- [ ] 2.2 Add `extraResources` field to `OpenAPIMCPServerConfig` interface
-- [ ] 2.3 Add `extraPrompts` field to `OpenAPIMCPServerConfig` interface
-- [ ] 2.4 Update `loadConfig()` to parse new configuration options
+- [x] 2.1 Add `extraTools?: CustomToolDefinition[]` field to `OpenAPIMCPServerConfig`
+- [ ] 2.2 Update `loadConfig()` in `config.ts` to parse `extraTools` from CLI/config (deferred - config loading only)
+- [ ] 2.3 Add CLI flag `--extra-tool` to support command-line tool registration (deferred - programmatic API primary focus)
 
-## 3. Server Registration Methods
-- [ ] 3.1 Add private storage maps for custom primitives in `OpenAPIServer` class
-- [ ] 3.2 Implement `registerTool(name, definition, handler)` method
-- [ ] 3.3 Implement `registerResource(uri, definition, handler)` method
-- [ ] 3.4 Implement `registerPrompt(name, definition, handler)` method
-- [ ] 3.5 Add duplicate name/URI validation to registration methods
-- [ ] 3.6 Update constructor to register primitives from config
+## 3. OpenAPIServer - Custom Tools Storage
+- [x] 3.1 Add `private customTools: Map<string, CustomToolDefinition>` to OpenAPIServer class
+- [x] 3.2 Update constructor to load `extraTools` from config into `customTools` Map
+- [x] 3.3 Initialize `customTools` Map even when `extraTools` is empty
 
-## 4. MCP Protocol Handler Updates
-- [ ] 4.1 Update `tools/list` handler to include custom tools
-- [ ] 4.2 Update `tools/call` handler to execute custom tool handlers
-- [ ] 4.3 Add `resources/list` handler with custom resources
-- [ ] 4.4 Add `resources/read` handler to execute resource handlers
-- [ ] 4.5 Add `prompts/list` handler with custom prompts
-- [ ] 4.6 Add `prompts/get` handler to execute prompt handlers
+## 4. OpenAPIServer - Manager Initialization
+- [x] 4.1 Update constructor to always initialize `promptsManager` (even if `config.prompts` empty)
+- [x] 4.2 Update constructor to always initialize `resourcesManager` (even if `config.resources` empty)
+- [x] 4.3 Update capabilities to always declare prompts/resources (for dynamic registration)
 
-## 5. Capabilities Declaration
-- [ ] 5.1 Update `initializeHandlers()` to conditionally set capabilities
-- [ ] 5.2 Add `resources` capability when custom resources registered
-- [ ] 5.3 Add `prompts` capability when custom prompts registered
-- [ ] 5.4 Ensure tools capability remains set when custom tools added
+## 5. OpenAPIServer - Registration Methods
+- [x] 5.1 Implement `registerTool(name, definition)` method
+- [x] 5.2 Add duplicate name validation in `registerTool()`
+- [x] 5.3 Implement `registerPrompt(prompt)` wrapper method (delegates to `promptsManager.addPrompt()`)
+- [x] 5.4 Implement `registerResource(resource)` wrapper method (delegates to `resourcesManager.addResource()`)
+- [x] 5.5 Export registration methods as public API
 
-## 6. Error Handling
-- [ ] 6.1 Add error handling for tool handler execution
-- [ ] 6.2 Add error handling for resource handler execution
-- [ ] 6.3 Add error handling for prompt handler execution
-- [ ] 6.4 Add validation for missing required prompt arguments
-- [ ] 6.5 Add proper error responses for not found resources/prompts
+## 6. MCP Protocol Handler Updates - Tools
+- [x] 6.1 Update `ListToolsRequestSchema` handler to merge OpenAPI + custom tools
+- [x] 6.2 Ensure custom tools have correct MCP Tool format (name, description, inputSchema)
+- [x] 6.3 Update `CallToolRequestSchema` handler to check custom tools if not found in OpenAPI tools
+- [x] 6.4 Add error handling for custom tool handler execution
+- [x] 6.5 Ensure error responses include `isError: true` flag
+- [x] 6.6 Verify that OpenAPI tools have precedence over custom tools
 
-## 7. Testing - Custom Tools
-- [ ] 7.1 Test registering tool programmatically
-- [ ] 7.2 Test registering tool via config
-- [ ] 7.3 Test tool appears in tools/list
-- [ ] 7.4 Test tool execution with valid input
-- [ ] 7.5 Test tool execution with invalid input
-- [ ] 7.6 Test duplicate tool name error
-- [ ] 7.7 Test custom tool alongside OpenAPI tools
+## 7. Error Handling
+- [x] 7.1 Add try-catch wrapper for custom tool handler execution
+- [x] 7.2 Format handler errors as MCP text content with `isError: true`
+- [ ] 7.3 Validate tool input against inputSchema before calling handler (deferred - MCP SDK handles)
+- [x] 7.4 Add proper error message for tool not found (check both OpenAPI + custom)
 
-## 8. Testing - Custom Resources
-- [ ] 8.1 Test registering resource programmatically
-- [ ] 8.2 Test registering resource via config
-- [ ] 8.3 Test resource appears in resources/list
-- [ ] 8.4 Test reading text resource
-- [ ] 8.5 Test reading blob resource
-- [ ] 8.6 Test resource not found error
-- [ ] 8.7 Test duplicate resource URI error
+## 8. Testing - Custom Tools
+- [x] 8.1 Test registering custom tool programmatically via `registerTool()`
+- [x] 8.2 Test registering custom tool via config `extraTools`
+- [x] 8.3 Test custom tool appears in `tools/list` response
+- [x] 8.4 Test custom tool execution with valid input via `tools/call`
+- [x] 8.5 Test custom tool execution with handler error
+- [x] 8.6 Test duplicate tool name error (same name registered twice)
+- [x] 8.7 Test custom tool + OpenAPI tool coexistence
+- [x] 8.8 Test OpenAPI tool precedence when names conflict
 
-## 9. Testing - Custom Prompts
-- [ ] 9.1 Test registering prompt programmatically
-- [ ] 9.2 Test registering prompt via config
-- [ ] 9.3 Test prompt appears in prompts/list
-- [ ] 9.4 Test getting prompt without arguments
-- [ ] 9.5 Test getting prompt with arguments
-- [ ] 9.6 Test missing required arguments error
-- [ ] 9.7 Test duplicate prompt name error
+## 9. Testing - Programmatic Prompt Registration
+- [x] 9.1 Test `registerPrompt()` adds prompt successfully
+- [x] 9.2 Test registered prompt appears in `prompts/list`
+- [x] 9.3 Test registered prompt can be retrieved via `prompts/get`
+- [x] 9.4 Test prompt registration after server construction
+- [ ] 9.5 Test duplicate prompt name error (deferred - manager handles)
 
-## 10. Testing - Integration
-- [ ] 10.1 Test all three primitive types registered simultaneously
-- [ ] 10.2 Test capabilities declared correctly based on registered primitives
-- [ ] 10.3 Test server initialization with extraTools/extraResources/extraPrompts
-- [ ] 10.4 Test error handling across all primitive types
+## 10. Testing - Programmatic Resource Registration
+- [x] 10.1 Test `registerResource()` adds resource successfully
+- [x] 10.2 Test registered resource appears in `resources/list`
+- [x] 10.3 Test registered resource can be read via `resources/read`
+- [x] 10.4 Test resource registration after server construction
+- [ ] 10.5 Test duplicate resource URI error (deferred - manager handles)
 
-## 11. Documentation
-- [ ] 11.1 Update README with custom primitives API
-- [ ] 11.2 Add example of registering custom tool
-- [ ] 11.3 Add example of registering custom resource
-- [ ] 11.4 Add example of registering custom prompt
-- [ ] 11.5 Create example file in `examples/` directory
-- [ ] 11.6 Update CLAUDE.md with architecture details
+## 11. Testing - Integration
+- [x] 11.1 Test all three registration methods work simultaneously
+- [x] 11.2 Test capabilities declared correctly when all three used
+- [x] 11.3 Test server initialization with `extraTools` + `prompts` + `resources` in config
+- [x] 11.4 Test error handling across custom tools, prompts, and resources
 
-## 12. Type Exports
-- [ ] 12.1 Export custom primitive types from `src/index.ts`
-- [ ] 12.2 Ensure TypeScript declarations are generated correctly
-- [ ] 12.3 Verify type imports work in consuming projects
+## 12. Documentation
+- [x] 12.1 Update README with custom tools API
+- [x] 12.2 Add example of registering custom tool programmatically
+- [x] 12.3 Add example of registering custom tool via config
+- [x] 12.4 Document `registerPrompt()` and `registerResource()` methods
+- [x] 12.5 Add use case examples (data transformation tool, workflow prompts)
+- [x] 12.6 Update TypeScript API documentation (inline in README)
+- [ ] 12.7 Add migration guide for users wanting to add custom functionality (deferred - examples sufficient)
+
+## 13. Example/Demo
+- [x] 13.1 Create example showing custom tool + OpenAPI tool together
+- [x] 13.2 Create example showing all three primitives registered programmatically
+- [x] 13.3 Add example of workflow prompt composing multiple API calls
+- [x] 13.4 Add example of utility tool (e.g., base64 encode/decode)

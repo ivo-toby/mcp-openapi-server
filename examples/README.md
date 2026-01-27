@@ -39,7 +39,22 @@ These examples focus on the **library usage**, showing how to create dedicated, 
 
 **When to use**: When your API requires token refresh, has expiring tokens, or needs complex authentication logic.
 
-### 3. [Beatport Example](./beatport-example/)
+### 3. [Custom Tools Example](./custom-tools-example/)
+
+**Purpose**: Demonstrates how to extend an OpenAPI server with custom tools, prompts, and resources.
+
+**Key Features**:
+
+- Custom utility tools (base64 encode/decode, UUID generation, JSON formatting)
+- Configuration-based tool definition
+- Programmatic tool registration
+- Custom prompts for common workflows
+- Custom resources with documentation
+- Integration of custom and auto-generated tools
+
+**When to use**: When you need to add utility functions, data transformations, or workflow helpers alongside your API endpoints.
+
+### 4. [Beatport Example](./beatport-example/)
 
 **Purpose**: Real-world implementation for the Beatport API demonstrating production-ready patterns.
 
@@ -96,6 +111,43 @@ interface AuthProvider {
 - Authentication error recovery
 - Runtime token updates
 
+### Custom Tools, Prompts, and Resources
+
+The library supports extending auto-generated OpenAPI tools with custom functionality:
+
+```typescript
+// Register a custom tool
+server.registerTool("my-tool", {
+  description: "Custom utility function",
+  inputSchema: { type: "object", properties: { /* ... */ } },
+  handler: async (args) => {
+    return { content: [{ type: "text", text: "result" }] }
+  }
+})
+
+// Register a prompt
+server.registerPrompt({
+  name: "my-prompt",
+  template: "Do {{action}} with {{data}}",
+  arguments: [/* ... */]
+})
+
+// Register a resource
+server.registerResource({
+  uri: "docs://my-doc",
+  name: "my-doc",
+  mimeType: "text/markdown",
+  text: "# Documentation..."
+})
+```
+
+**Benefits**:
+
+- Add utility functions alongside API endpoints
+- Create workflow templates
+- Provide inline documentation
+- Extend API functionality
+
 ### Configuration Options
 
 All examples demonstrate different configuration patterns:
@@ -104,6 +156,7 @@ All examples demonstrate different configuration patterns:
 - **Tool Loading**: All endpoints vs filtered subsets vs dynamic meta-tools
 - **Authentication**: Static headers vs dynamic AuthProvider
 - **API Filtering**: Include/exclude specific endpoints, operations, or tags
+- **Custom Extensions**: Custom tools, prompts, and resources
 
 ## Getting Started
 

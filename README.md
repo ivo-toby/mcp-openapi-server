@@ -596,6 +596,138 @@ const config = {
 const server = new OpenAPIServer(config)
 ```
 
+### Registering Custom Tools
+
+Beyond the auto-generated OpenAPI tools, you can register custom tools programmatically. This allows you to add utility functions, data transformations, or any custom logic alongside your API endpoints:
+
+```typescript
+import { OpenAPIServer } from "@ivotoby/openapi-mcp-server"
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
+
+const config = {
+  name: "my-api-server",
+  version: "1.0.0",
+  apiBaseUrl: "https://api.example.com",
+  openApiSpec: "https://api.example.com/openapi.json",
+  specInputMethod: "url" as const,
+  transportType: "stdio" as const,
+  toolsMode: "all" as const,
+}
+
+const server = new OpenAPIServer(config)
+
+// Register a custom tool programmatically
+server.registerTool("base64-encode", {
+  description: "Encode text to base64 format",
+  inputSchema: {
+    type: "object",
+    properties: {
+      text: { type: "string", description: "Text to encode" },
+    },
+    required: ["text"],
+  },
+  handler: async (args): Promise<CallToolResult> => {
+    const encoded = Buffer.from(args.text as string).toString("base64")
+    return {
+      content: [{ type: "text", text: encoded }],
+    }
+  },
+})
+
+// Start the server
+const transport = new StdioServerTransport()
+await server.start(transport)
+```
+
+#### Registering Custom Tools via Configuration
+
+You can also provide custom tools in the configuration object:
+
+```typescript
+const config = {
+  name: "my-api-server",
+  version: "1.0.0",
+  apiBaseUrl: "https://api.example.com",
+  openApiSpec: "https://api.example.com/openapi.json",
+  specInputMethod: "url" as const,
+  transportType: "stdio" as const,
+  toolsMode: "all" as const,
+
+  // Define custom tools in config
+  extraTools: [
+    {
+      name: "uuid-generator",
+      description: "Generate a random UUID v4",
+      inputSchema: {
+        type: "object",
+        properties: {},
+      },
+      handler: async (): Promise<CallToolResult> => {
+        const uuid = crypto.randomUUID()
+        return {
+          content: [{ type: "text", text: uuid }],
+        }
+      },
+    },
+  ],
+}
+
+const server = new OpenAPIServer(config)
+```
+
+#### Custom Tool Handler Format
+
+Custom tool handlers receive arguments and must return a `CallToolResult`:
+
+```typescript
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
+
+type CustomToolHandler = (
+  args: Record<string, unknown>
+) => Promise<CallToolResult>
+
+// CallToolResult format:
+{
+  content: [
+    { type: "text", text: "result text" },
+    // Or { type: "image", data: "base64...", mimeType: "image/png" }
+    // Or { type: "resource", uri: "...", text: "..." }
+  ],
+  isError?: boolean  // Set to true for error responses
+}
+```
+
+#### Error Handling in Custom Tools
+
+```typescript
+server.registerTool("divide", {
+  description: "Divide two numbers",
+  inputSchema: {
+    type: "object",
+    properties: {
+      a: { type: "number" },
+      b: { type: "number" },
+    },
+    required: ["a", "b"],
+  },
+  handler: async (args): Promise<CallToolResult> => {
+    const a = args.a as number
+    const b = args.b as number
+
+    if (b === 0) {
+      return {
+        content: [{ type: "text", text: "Error: Division by zero" }],
+        isError: true,
+      }
+    }
+
+    return {
+      content: [{ type: "text", text: String(a / b) }],
+    }
+  },
+})
+```
+
 #### Dynamic Prompt and Resource Management
 
 You can also add prompts and resources dynamically after server creation:
@@ -603,25 +735,43 @@ You can also add prompts and resources dynamically after server creation:
 ```typescript
 const server = new OpenAPIServer(config)
 
-// Add prompts dynamically
+// Add prompts using the convenience method
+server.registerPrompt({
+  name: "debug_error",
+  title: "Error Debugger",
+  description: "Help debug API errors",
+  template: "Debug this API error: {{error_message}}",
+  arguments: [
+    { name: "error_message", description: "The error message to debug", required: true },
+  ],
+})
+
+// Add resources using the convenience method
+server.registerResource({
+  uri: "docs://changelog",
+  name: "changelog",
+  title: "API Changelog",
+  description: "Release history and changes",
+  mimeType: "text/markdown",
+  text: "# Changelog\n\n## v1.0.0\n- Initial release",
+})
+
+// Alternative: Access managers directly if needed
 const promptsManager = server.getPromptsManager()
 if (promptsManager) {
   promptsManager.addPrompt({
-    name: "debug_error",
-    title: "Error Debugger",
-    template: "Debug this API error: {{error_message}}",
+    name: "another_prompt",
+    template: "Another prompt template",
   })
 }
 
-// Add resources dynamically
 const resourcesManager = server.getResourcesManager()
 if (resourcesManager) {
   resourcesManager.addResource({
-    uri: "docs://changelog",
-    name: "changelog",
-    title: "API Changelog",
-    mimeType: "text/markdown",
-    text: "# Changelog\n\n## v1.0.0\n- Initial release",
+    uri: "docs://another-doc",
+    name: "another-doc",
+    mimeType: "text/plain",
+    text: "Document content",
   })
 }
 ```
