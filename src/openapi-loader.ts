@@ -5,6 +5,7 @@ import yaml, { CORE_SCHEMA } from "js-yaml"
 import crypto from "crypto"
 import { REVISED_COMMON_WORDS_TO_REMOVE, WORD_ABBREVIATIONS } from "./utils/abbreviations.js"
 import { generateToolId } from "./utils/tool-id.js"
+import { Logger } from "./utils/logger.js"
 
 /**
  * Extended Tool interface with metadata for filtering
@@ -36,8 +37,11 @@ export class OpenAPISpecLoader {
    */
   private disableAbbreviation: boolean
 
-  constructor(config?: { disableAbbreviation?: boolean }) {
+  private logger: Logger
+
+  constructor(config?: { disableAbbreviation?: boolean; verbose?: boolean }) {
     this.disableAbbreviation = config?.disableAbbreviation ?? false
+    this.logger = new Logger(config?.verbose ?? true)
   }
 
   /**
@@ -326,7 +330,7 @@ export class OpenAPISpecLoader {
   ): string | undefined {
     // Handle empty schema (potentially from cycle removal in inlineSchema)
     if (Object.keys(paramSchema).length === 0 && typeof paramSchema !== "boolean") {
-      console.warn(
+      this.logger.warn(
         `Parameter '${paramName}' schema was empty after inlining (potential cycle or unresolvable ref), defaulting to string.`,
       )
       return "string"
@@ -421,19 +425,19 @@ export class OpenAPISpecLoader {
               if (resolvedParam && "name" in resolvedParam && "in" in resolvedParam) {
                 paramObj = resolvedParam as OpenAPIV3.ParameterObject
               } else {
-                console.warn(
+                this.logger.warn(
                   `Could not resolve path-level parameter reference or invalid structure: ${param.$ref}`,
                 )
                 continue
               }
             } else {
-              console.warn(`Could not parse path-level parameter reference: ${param.$ref}`)
+              this.logger.warn(`Could not parse path-level parameter reference: ${param.$ref}`)
               continue
             }
           } else if ("name" in param && "in" in param) {
             paramObj = param as OpenAPIV3.ParameterObject
           } else {
-            console.warn(
+            this.logger.warn(
               "Skipping path-level parameter due to missing 'name' or 'in' properties and not being a valid $ref:",
               param,
             )
@@ -455,7 +459,7 @@ export class OpenAPISpecLoader {
             method.toLowerCase(),
           )
         ) {
-          console.warn(`Skipping non-HTTP method "${method}" for path ${path}`)
+          this.logger.warn(`Skipping non-HTTP method "${method}" for path ${path}`)
           continue
         }
 
@@ -509,19 +513,19 @@ export class OpenAPISpecLoader {
                 if (resolvedParam && "name" in resolvedParam && "in" in resolvedParam) {
                   paramObj = resolvedParam as OpenAPIV3.ParameterObject
                 } else {
-                  console.warn(
+                  this.logger.warn(
                     `Could not resolve parameter reference or invalid structure: ${param.$ref}`,
                   )
                   continue
                 }
               } else {
-                console.warn(`Could not parse parameter reference: ${param.$ref}`)
+                this.logger.warn(`Could not parse parameter reference: ${param.$ref}`)
                 continue
               }
             } else if ("name" in param && "in" in param) {
               paramObj = param as OpenAPIV3.ParameterObject
             } else {
-              console.warn(
+              this.logger.warn(
                 "Skipping parameter due to missing 'name' or 'in' properties and not being a valid $ref:",
                 param,
               )
@@ -590,19 +594,19 @@ export class OpenAPISpecLoader {
               if (resolvedRequestBody && "content" in resolvedRequestBody) {
                 requestBodyObj = resolvedRequestBody as OpenAPIV3.RequestBodyObject
               } else {
-                console.warn(
+                this.logger.warn(
                   `Could not resolve requestBody reference or invalid structure: ${op.requestBody.$ref}`,
                 )
                 continue
               }
             } else {
-              console.warn(`Could not parse requestBody reference: ${op.requestBody.$ref}`)
+              this.logger.warn(`Could not parse requestBody reference: ${op.requestBody.$ref}`)
               continue
             }
           } else if ("content" in op.requestBody) {
             requestBodyObj = op.requestBody as OpenAPIV3.RequestBodyObject
           } else {
-            console.warn("Skipping requestBody due to invalid structure:", op.requestBody)
+            this.logger.warn("Skipping requestBody due to invalid structure:", op.requestBody)
             continue
           }
 

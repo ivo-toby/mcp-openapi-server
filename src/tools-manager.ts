@@ -3,6 +3,7 @@ import { OpenAPISpecLoader, ExtendedTool } from "./openapi-loader"
 import { OpenAPIMCPServerConfig } from "./config"
 import { OpenAPIV3 } from "openapi-types"
 import { parseToolId as parseToolIdUtil } from "./utils/tool-id.js"
+import { Logger } from "./utils/logger"
 
 /**
  * Manages the tools available in the MCP server
@@ -11,6 +12,7 @@ export class ToolsManager {
   private tools: Map<string, Tool> = new Map()
   private specLoader: OpenAPISpecLoader
   private loadedSpec?: OpenAPIV3.Document
+  private logger: Logger
 
   constructor(private config: OpenAPIMCPServerConfig) {
     // Ensure toolsMode has a default value of 'all'
@@ -18,6 +20,7 @@ export class ToolsManager {
     this.specLoader = new OpenAPISpecLoader({
       disableAbbreviation: this.config.disableAbbreviation,
     })
+    this.logger = new Logger(this.config.verbose ?? true)
   }
 
   /**
@@ -131,7 +134,7 @@ export class ToolsManager {
 
       // Log the registered tools
       for (const [toolId, tool] of this.tools.entries()) {
-        console.error(`Registered tool: ${toolId} (${tool.name})`)
+        this.logger.error(`Registered tool: ${toolId} (${tool.name})`)
       }
       return
     }
@@ -205,7 +208,7 @@ export class ToolsManager {
 
     // Log the registered tools
     for (const [toolId, tool] of this.tools.entries()) {
-      console.error(`Registered tool: ${toolId} (${tool.name})`)
+      this.logger.error(`Registered tool: ${toolId} (${tool.name})`)
     }
   }
 

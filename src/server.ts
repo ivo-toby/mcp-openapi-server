@@ -15,6 +15,7 @@ import { ApiClient } from "./api-client"
 import { StaticAuthProvider } from "./auth-provider.js"
 import { PromptsManager } from "./prompts-manager"
 import { ResourcesManager } from "./resources-manager"
+import { Logger } from "./utils/logger"
 
 /**
  * MCP server implementation for OpenAPI specifications
@@ -26,6 +27,7 @@ export class OpenAPIServer {
   private promptsManager?: PromptsManager
   private resourcesManager?: ResourcesManager
   private config: OpenAPIMCPServerConfig
+  private logger: Logger
 
   constructor(config: OpenAPIMCPServerConfig) {
     this.config = config
@@ -52,10 +54,7 @@ export class OpenAPIServer {
       capabilities.resources = {}
     }
 
-    this.server = new Server(
-      { name: config.name, version: config.version },
-      { capabilities },
-    )
+    this.server = new Server({ name: config.name, version: config.version }, { capabilities })
     this.toolsManager = new ToolsManager(config)
 
     // Use AuthProvider if provided, otherwise fallback to static headers
@@ -67,6 +66,7 @@ export class OpenAPIServer {
     )
 
     this.initializeHandlers()
+    this.logger = new Logger(config.verbose ?? true)
   }
 
   /**
@@ -84,8 +84,8 @@ export class OpenAPIServer {
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { id, name, arguments: params } = request.params
 
-      console.error("Received request:", request.params)
-      console.error("Using parameters from arguments:", params)
+      this.logger.error("Received request:", request.params)
+      this.logger.error("Using parameters from arguments:", params)
 
       // Find tool by ID or name
       const idOrName = typeof id === "string" ? id : typeof name === "string" ? name : ""
@@ -95,7 +95,7 @@ export class OpenAPIServer {
 
       const toolInfo = this.toolsManager.findTool(idOrName)
       if (!toolInfo) {
-        console.error(
+        this.logger.error(
           `Available tools: ${Array.from(this.toolsManager.getAllTools())
             .map((t) => t.name)
             .join(", ")}`,
@@ -104,7 +104,7 @@ export class OpenAPIServer {
       }
 
       const { toolId, tool } = toolInfo
-      console.error(`Executing tool: ${toolId} (${tool.name})`)
+      this.logger.error(`Executing tool: ${toolId} (${tool.name})`)
 
       try {
         // Execute the API call
@@ -141,10 +141,7 @@ export class OpenAPIServer {
       }))
 
       this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-        return this.promptsManager!.getPrompt(
-          request.params.name,
-          request.params.arguments,
-        )
+        return this.promptsManager!.getPrompt(request.params.name, request.params.arguments)
       })
     }
 
@@ -196,4 +193,3 @@ export class OpenAPIServer {
     return this.resourcesManager
   }
 }
-
