@@ -168,6 +168,10 @@ export function loadConfig(): OpenAPIMCPServerConfig {
       type: "string",
       description: "Provide resources directly as JSON string",
     })
+    .option("verbose", {
+      type: "boolean",
+      description: "Enable verbose logging",
+    })
     .help()
     .parseSync()
 
@@ -231,6 +235,7 @@ export function loadConfig(): OpenAPIMCPServerConfig {
   const disableAbbreviation =
     argv["disable-abbreviation"] ||
     (process.env.DISABLE_ABBREVIATION ? process.env.DISABLE_ABBREVIATION === "true" : false)
+  const verbose = argv.verbose || process.env.VERBOSE === "true"
 
   const toolsModeInput =
     (typeof argv.tools === "string" ? argv.tools : undefined) || process.env.TOOLS_MODE
@@ -274,5 +279,6 @@ export function loadConfig(): OpenAPIMCPServerConfig {
     resourcesPath: (argv.resources as string | undefined) || process.env.RESOURCES_PATH,
     resourcesInline:
       (argv["resources-inline"] as string | undefined) || process.env.RESOURCES_INLINE,
+    verbose,
   }
 }

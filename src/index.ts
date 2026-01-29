@@ -6,20 +6,23 @@ import { OpenAPIServer } from "./server"
 import { loadConfig } from "./config"
 import { StreamableHttpServerTransport } from "./transport/StreamableHttpServerTransport"
 import { loadPrompts, loadResources } from "./content-loader"
+import { Logger } from "./utils/logger"
 
 /**
  * Main entry point for CLI usage
  */
 async function main(): Promise<void> {
+  const logger = new Logger(true)
   try {
     const config = loadConfig()
+    logger.setVerbose(config.verbose)
 
     // Load prompts from file/URL/inline if specified
     if (config.promptsPath || config.promptsInline) {
       const prompts = await loadPrompts(config.promptsPath, config.promptsInline)
       if (prompts) {
         config.prompts = prompts
-        console.error(`Loaded ${prompts.length} prompt(s)`)
+        logger.error(`Loaded ${prompts.length} prompt(s)`)
       }
     }
 
@@ -28,7 +31,7 @@ async function main(): Promise<void> {
       const resources = await loadResources(config.resourcesPath, config.resourcesInline)
       if (resources) {
         config.resources = resources
-        console.error(`Loaded ${resources.length} resource(s)`)
+        logger.error(`Loaded ${resources.length} resource(s)`)
       }
     }
 
@@ -43,16 +46,16 @@ async function main(): Promise<void> {
         config.endpointPath,
       )
       await server.start(transport)
-      console.error(
+      logger.error(
         `OpenAPI MCP Server running on http://${config.httpHost}:${config.httpPort}${config.endpointPath}`,
       )
     } else {
       transport = new StdioServerTransport()
       await server.start(transport)
-      console.error("OpenAPI MCP Server running on stdio")
+      logger.error("OpenAPI MCP Server running on stdio")
     }
   } catch (error) {
-    console.error("Failed to start server:", error)
+    logger.error("Failed to start server:", error)
     process.exit(1)
   }
 }
@@ -69,6 +72,7 @@ export * from "./prompts-manager"
 export * from "./resources-manager"
 export * from "./prompt-types"
 export * from "./resource-types"
+export * from "./utils/logger"
 
 // Export the main function for programmatic usage
 export { main }

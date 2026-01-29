@@ -5,6 +5,10 @@ export class Logger {
     this.verbose = verbose
   }
 
+  setVerbose(verbose: boolean = false): void {
+    this.verbose = verbose
+  }
+
   warn(message: string, ...optionalParams: unknown[]): void {
     if (this.verbose) {
       console.warn(message, ...optionalParams)
