@@ -168,8 +168,9 @@ export class ApiClient {
             // Escape key before using it in regex patterns
             const escapedKey = escapeRegExp(key)
             // Try standard OpenAPI, Express-style parameters, and unique markers
+            // Note: Lookahead includes colon to support Google-style RPC suffixes (e.g., :activate)
             const paramRegex = new RegExp(
-              `\\{${escapedKey}\\}|:${escapedKey}(?:\\/|$)|---${escapedKey}(?=__|/|$)`,
+              `\\{${escapedKey}\\}|:${escapedKey}(?:\\/|$)|---${escapedKey}(?=__|/|:|$)`,
               "g",
             )
 
@@ -219,8 +220,9 @@ export class ApiClient {
           // Escape key before using it in regex patterns
           const escapedKey = escapeRegExp(key)
           // First try standard OpenAPI, Express-style parameters, and unique markers
+          // Note: Lookahead includes colon to support Google-style RPC suffixes (e.g., :activate)
           const paramRegex = new RegExp(
-            `\\{${escapedKey}\\}|:${escapedKey}(?:\\/|$)|---${escapedKey}(?=__|/|$)`,
+            `\\{${escapedKey}\\}|:${escapedKey}(?:\\/|$)|---${escapedKey}(?=__|/|:|$)`,
             "g",
           )
 
