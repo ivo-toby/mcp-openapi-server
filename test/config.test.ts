@@ -160,6 +160,7 @@ describe("loadConfig", () => {
       includeOperations: undefined,
       toolsMode: "all",
       disableAbbreviation: undefined,
+      verbose: false,
     })
   })
 
@@ -230,6 +231,7 @@ describe("loadConfig", () => {
     process.env.SERVER_NAME = "env-server"
     process.env.SERVER_VERSION = "3.2.1"
     process.env.TRANSPORT_TYPE = "stdio"
+    process.env.VERBOSE = "true"
 
     // Import the module after setting up mocks
     const { loadConfig } = await import("../src/config")
@@ -255,6 +257,7 @@ describe("loadConfig", () => {
       includeOperations: undefined,
       toolsMode: "all",
       disableAbbreviation: undefined,
+      verbose: true,
     })
   })
 
@@ -431,6 +434,7 @@ describe("loadConfig", () => {
       includeOperations: undefined,
       toolsMode: "all",
       disableAbbreviation: undefined,
+      verbose: false,
     })
   })
 
