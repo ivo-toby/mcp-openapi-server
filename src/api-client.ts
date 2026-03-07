@@ -13,6 +13,7 @@ import { OpenAPIV3 } from "openapi-types"
  */
 const SYSTEM_CONTROLLED_HEADERS = new Set([
   "host", // Controlled by HTTP client based on URL
+  "content-type", // Set automatically based on OpenAPI spec or defaults
   "content-length", // Calculated by HTTP client from body
   "transfer-encoding", // Managed by HTTP client for chunked encoding
   "connection", // HTTP connection management
@@ -281,6 +282,10 @@ export class ApiClient {
       } else {
         // For POST-like methods, remaining parameters go in the request body
         config.data = Object.keys(paramsCopy).length > 0 ? paramsCopy : {}
+
+        // Set Content-Type from OpenAPI spec metadata, defaulting to application/json
+        const contentType = (toolDef?.inputSchema as any)?.["x-content-type"] || "application/json"
+        config.headers["Content-Type"] = contentType
       }
 
       // Execute the request
@@ -605,6 +610,7 @@ export class ApiClient {
     } else {
       // For POST-like methods, parameters go in the request body
       config.data = params
+      config.headers["Content-Type"] = "application/json"
     }
 
     try {

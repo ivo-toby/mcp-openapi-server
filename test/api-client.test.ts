@@ -785,8 +785,9 @@ describe("Issue #50: Header Parameter Support", () => {
       value: "test-value",
     })
 
-    // Verify header parameter is in headers
+    // Verify header parameter is in headers along with Content-Type
     expect(capturedConfig.headers).toEqual({
+      "Content-Type": "application/json",
       "x-request-id": "req-12345",
     })
 
@@ -1201,6 +1202,50 @@ describe("Issue #50: Header Parameter Support", () => {
     expect(capturedConfig.headers["x-custom-header"]).toBe("normal-value")
   })
 
+  it("should block content-type as system-controlled header", async () => {
+    const mockSpecLoader = new OpenAPISpecLoader()
+    const mockApiClient = new ApiClient(
+      "https://api.example.com",
+      new StaticAuthProvider(),
+      mockSpecLoader,
+    )
+
+    const testSpec = {
+      openapi: "3.0.0",
+      info: { title: "Test API", version: "1.0.0" },
+      paths: {
+        "/api/data": {
+          get: {
+            parameters: [
+              {
+                name: "Content-Type",
+                in: "header",
+                required: false,
+                schema: { type: "string" },
+              },
+            ],
+            responses: { "200": { description: "Success" } },
+          },
+        },
+      },
+    }
+
+    mockApiClient.setOpenApiSpec(testSpec as any)
+    const tools = mockSpecLoader.parseOpenAPISpec(testSpec as any)
+    mockApiClient.setTools(tools)
+
+    const mockAxios = vi.fn().mockImplementation(() => {
+      return Promise.resolve({ data: { success: true } })
+    })
+    ;(mockApiClient as any).axiosInstance = mockAxios
+
+    const toolId = "GET::api__data"
+
+    await expect(
+      mockApiClient.executeApiCall(toolId, { "Content-Type": "text/plain" }),
+    ).rejects.toThrow('Cannot set system-controlled header "Content-Type"')
+  })
+
   it("should prevent setting system-controlled headers", async () => {
     const mockSpecLoader = new OpenAPISpecLoader()
     const mockApiClient = new ApiClient(
@@ -1252,5 +1297,401 @@ describe("Issue #50: Header Parameter Support", () => {
     await expect(
       mockApiClient.executeApiCall("GET::api__data", { "Content-Length": "999" }),
     ).rejects.toThrow('Cannot set system-controlled header "Content-Length"')
+  })
+})
+
+// Tests for Issue #81: Content-Type header not set for POST/PUT/PATCH requests
+describe("Issue #81: Content-Type header support", () => {
+  it("should set Content-Type application/json for POST requests with body", async () => {
+    const mockSpecLoader = new OpenAPISpecLoader()
+    const mockApiClient = new ApiClient(
+      "https://api.example.com",
+      new StaticAuthProvider(),
+      mockSpecLoader,
+    )
+
+    const testSpec = {
+      openapi: "3.0.0",
+      info: { title: "Test API", version: "1.0.0" },
+      paths: {
+        "/api/users": {
+          post: {
+            operationId: "createUser",
+            requestBody: {
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object" as const,
+                    properties: {
+                      name: { type: "string" as const },
+                    },
+                  },
+                },
+              },
+            },
+            responses: { "201": { description: "Created" } },
+          },
+        },
+      },
+    }
+
+    mockApiClient.setOpenApiSpec(testSpec as any)
+    const tools = mockSpecLoader.parseOpenAPISpec(testSpec as any)
+    mockApiClient.setTools(tools)
+
+    let capturedConfig: any = null
+    const mockAxios = vi.fn().mockImplementation((config) => {
+      capturedConfig = config
+      return Promise.resolve({ data: { id: 1 } })
+    })
+    ;(mockApiClient as any).axiosInstance = mockAxios
+
+    const toolId = "POST::api__users"
+    await mockApiClient.executeApiCall(toolId, { name: "John" })
+
+    expect(capturedConfig.headers["Content-Type"]).toBe("application/json")
+  })
+
+  it("should set Content-Type application/json for PUT requests with body", async () => {
+    const mockSpecLoader = new OpenAPISpecLoader()
+    const mockApiClient = new ApiClient(
+      "https://api.example.com",
+      new StaticAuthProvider(),
+      mockSpecLoader,
+    )
+
+    const testSpec = {
+      openapi: "3.0.0",
+      info: { title: "Test API", version: "1.0.0" },
+      paths: {
+        "/api/users/{id}": {
+          put: {
+            operationId: "updateUser",
+            parameters: [
+              {
+                name: "id",
+                in: "path",
+                required: true,
+                schema: { type: "string" as const },
+              },
+            ],
+            requestBody: {
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object" as const,
+                    properties: {
+                      name: { type: "string" as const },
+                    },
+                  },
+                },
+              },
+            },
+            responses: { "200": { description: "Updated" } },
+          },
+        },
+      },
+    }
+
+    mockApiClient.setOpenApiSpec(testSpec as any)
+    const tools = mockSpecLoader.parseOpenAPISpec(testSpec as any)
+    mockApiClient.setTools(tools)
+
+    let capturedConfig: any = null
+    const mockAxios = vi.fn().mockImplementation((config) => {
+      capturedConfig = config
+      return Promise.resolve({ data: { id: 1 } })
+    })
+    ;(mockApiClient as any).axiosInstance = mockAxios
+
+    const toolId = "PUT::api__users__---id"
+    await mockApiClient.executeApiCall(toolId, { id: "1", name: "Jane" })
+
+    expect(capturedConfig.headers["Content-Type"]).toBe("application/json")
+  })
+
+  it("should set Content-Type from OpenAPI spec when not application/json", async () => {
+    const mockSpecLoader = new OpenAPISpecLoader()
+    const mockApiClient = new ApiClient(
+      "https://api.example.com",
+      new StaticAuthProvider(),
+      mockSpecLoader,
+    )
+
+    const testSpec = {
+      openapi: "3.0.0",
+      info: { title: "Test API", version: "1.0.0" },
+      paths: {
+        "/api/data": {
+          post: {
+            operationId: "postData",
+            requestBody: {
+              content: {
+                "application/xml": {
+                  schema: {
+                    type: "object" as const,
+                    properties: {
+                      data: { type: "string" as const },
+                    },
+                  },
+                },
+              },
+            },
+            responses: { "200": { description: "Success" } },
+          },
+        },
+      },
+    }
+
+    mockApiClient.setOpenApiSpec(testSpec as any)
+    const tools = mockSpecLoader.parseOpenAPISpec(testSpec as any)
+    mockApiClient.setTools(tools)
+
+    let capturedConfig: any = null
+    const mockAxios = vi.fn().mockImplementation((config) => {
+      capturedConfig = config
+      return Promise.resolve({ data: { ok: true } })
+    })
+    ;(mockApiClient as any).axiosInstance = mockAxios
+
+    const toolId = "POST::api__data"
+    await mockApiClient.executeApiCall(toolId, { data: "<xml/>" })
+
+    expect(capturedConfig.headers["Content-Type"]).toBe("application/xml")
+  })
+
+  it("should not set Content-Type for GET requests", async () => {
+    const mockSpecLoader = new OpenAPISpecLoader()
+    const mockApiClient = new ApiClient(
+      "https://api.example.com",
+      new StaticAuthProvider(),
+      mockSpecLoader,
+    )
+
+    const testSpec = {
+      openapi: "3.0.0",
+      info: { title: "Test API", version: "1.0.0" },
+      paths: {
+        "/api/users": {
+          get: {
+            operationId: "getUsers",
+            responses: { "200": { description: "Success" } },
+          },
+        },
+      },
+    }
+
+    mockApiClient.setOpenApiSpec(testSpec as any)
+    const tools = mockSpecLoader.parseOpenAPISpec(testSpec as any)
+    mockApiClient.setTools(tools)
+
+    let capturedConfig: any = null
+    const mockAxios = vi.fn().mockImplementation((config) => {
+      capturedConfig = config
+      return Promise.resolve({ data: [] })
+    })
+    ;(mockApiClient as any).axiosInstance = mockAxios
+
+    const toolId = "GET::api__users"
+    await mockApiClient.executeApiCall(toolId, {})
+
+    expect(capturedConfig.headers["Content-Type"]).toBeUndefined()
+  })
+
+  it("should set Content-Type for POST with empty body", async () => {
+    const mockSpecLoader = new OpenAPISpecLoader()
+    const mockApiClient = new ApiClient(
+      "https://api.example.com",
+      new StaticAuthProvider(),
+      mockSpecLoader,
+    )
+
+    const testSpec = {
+      openapi: "3.0.0",
+      info: { title: "Test API", version: "1.0.0" },
+      paths: {
+        "/api/trigger": {
+          post: {
+            operationId: "trigger",
+            responses: { "200": { description: "Success" } },
+          },
+        },
+      },
+    }
+
+    mockApiClient.setOpenApiSpec(testSpec as any)
+    const tools = mockSpecLoader.parseOpenAPISpec(testSpec as any)
+    mockApiClient.setTools(tools)
+
+    let capturedConfig: any = null
+    const mockAxios = vi.fn().mockImplementation((config) => {
+      capturedConfig = config
+      return Promise.resolve({ data: { ok: true } })
+    })
+    ;(mockApiClient as any).axiosInstance = mockAxios
+
+    const toolId = "POST::api__trigger"
+    await mockApiClient.executeApiCall(toolId, {})
+
+    expect(capturedConfig.headers["Content-Type"]).toBe("application/json")
+  })
+
+  it("should set Content-Type for POST without tool definition (fallback)", async () => {
+    const mockApiClient = new ApiClient("https://api.example.com", new StaticAuthProvider())
+
+    let capturedConfig: any = null
+    const mockAxios = vi.fn().mockImplementation((config) => {
+      capturedConfig = config
+      return Promise.resolve({ data: { ok: true } })
+    })
+    ;(mockApiClient as any).axiosInstance = mockAxios
+
+    const toolId = "POST::api__data"
+    await mockApiClient.executeApiCall(toolId, { key: "value" })
+
+    expect(capturedConfig.headers["Content-Type"]).toBe("application/json")
+  })
+
+  it("should set Content-Type in makeDirectHttpRequest for POST via INVOKE-API-ENDPOINT", async () => {
+    const mockSpecLoader = new OpenAPISpecLoader()
+    const mockApiClient = new ApiClient(
+      "https://api.example.com",
+      new StaticAuthProvider(),
+      mockSpecLoader,
+    )
+
+    const openApiSpec = {
+      openapi: "3.0.0",
+      info: { title: "Test API", version: "1.0.0" },
+      paths: {
+        "/users": {
+          post: {
+            summary: "Create user",
+          },
+        },
+      },
+    }
+
+    mockApiClient.setOpenApiSpec(openApiSpec as any)
+    const mockAxios = {
+      request: vi.fn().mockResolvedValue({ data: { id: 1 } }),
+    }
+    ;(mockApiClient as any).axiosInstance = mockAxios
+
+    await mockApiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+      endpoint: "/users",
+      method: "POST",
+      params: { name: "John" },
+    })
+
+    expect(mockAxios.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "Content-Type": "application/json",
+        }),
+      }),
+    )
+  })
+
+  it("should not set Content-Type in makeDirectHttpRequest for GET via INVOKE-API-ENDPOINT", async () => {
+    const mockSpecLoader = new OpenAPISpecLoader()
+    const mockApiClient = new ApiClient(
+      "https://api.example.com",
+      new StaticAuthProvider(),
+      mockSpecLoader,
+    )
+
+    const openApiSpec = {
+      openapi: "3.0.0",
+      info: { title: "Test API", version: "1.0.0" },
+      paths: {
+        "/users": {
+          get: {
+            summary: "Get users",
+          },
+        },
+      },
+    }
+
+    mockApiClient.setOpenApiSpec(openApiSpec as any)
+    const mockAxios = {
+      request: vi.fn().mockResolvedValue({ data: [] }),
+    }
+    ;(mockApiClient as any).axiosInstance = mockAxios
+
+    await mockApiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+      endpoint: "/users",
+      method: "GET",
+      params: {},
+    })
+
+    const callHeaders = mockAxios.request.mock.calls[0][0].headers
+    expect(callHeaders["Content-Type"]).toBeUndefined()
+  })
+
+  it("should merge Content-Type with auth headers and custom headers for POST", async () => {
+    const mockSpecLoader = new OpenAPISpecLoader()
+    const authHeaders = { Authorization: "Bearer token" }
+    const mockApiClient = new ApiClient(
+      "https://api.example.com",
+      new StaticAuthProvider(authHeaders),
+      mockSpecLoader,
+    )
+
+    const testSpec = {
+      openapi: "3.0.0",
+      info: { title: "Test API", version: "1.0.0" },
+      paths: {
+        "/api/resources": {
+          post: {
+            operationId: "createResource",
+            parameters: [
+              {
+                name: "x-request-id",
+                in: "header",
+                required: true,
+                schema: { type: "string" as const },
+              },
+            ],
+            requestBody: {
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object" as const,
+                    properties: {
+                      name: { type: "string" as const },
+                    },
+                  },
+                },
+              },
+            },
+            responses: { "201": { description: "Created" } },
+          },
+        },
+      },
+    }
+
+    mockApiClient.setOpenApiSpec(testSpec as any)
+    const tools = mockSpecLoader.parseOpenAPISpec(testSpec as any)
+    mockApiClient.setTools(tools)
+
+    let capturedConfig: any = null
+    const mockAxios = vi.fn().mockImplementation((config) => {
+      capturedConfig = config
+      return Promise.resolve({ data: { id: 1 } })
+    })
+    ;(mockApiClient as any).axiosInstance = mockAxios
+
+    const toolId = "POST::api__resources"
+    await mockApiClient.executeApiCall(toolId, {
+      "x-request-id": "req-123",
+      name: "test",
+    })
+
+    expect(capturedConfig.headers).toEqual({
+      Authorization: "Bearer token",
+      "x-request-id": "req-123",
+      "Content-Type": "application/json",
+    })
   })
 })
