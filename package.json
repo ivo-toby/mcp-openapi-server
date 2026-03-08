@@ -16,6 +16,19 @@
     "dist",
     "bin"
   ],
+  "release": {
+    "plugins": [
+      "@semantic-release/commit-analyzer",
+      "@semantic-release/release-notes-generator",
+      "@semantic-release/npm",
+      [
+        "@semantic-release/github",
+        {
+          "labels": false
+        }
+      ]
+    ]
+  },
   "scripts": {
     "build": "node build.js && chmod +x bin/mcp-server.js",
     "clean": "rm -rf dist",

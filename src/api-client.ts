@@ -13,6 +13,7 @@ import { OpenAPIV3 } from "openapi-types"
  */
 const SYSTEM_CONTROLLED_HEADERS = new Set([
   "host", // Controlled by HTTP client based on URL
+  "content-type", // Set automatically based on OpenAPI spec or defaults
   "content-length", // Calculated by HTTP client from body
   "transfer-encoding", // Managed by HTTP client for chunked encoding
   "connection", // HTTP connection management
@@ -96,6 +97,59 @@ export class ApiClient {
    */
   private getToolDefinition(toolId: string): Tool | undefined {
     return this.toolsMap.get(toolId)
+  }
+
+  private resolveRequestBodyObject(
+    requestBody: OpenAPIV3.RequestBodyObject | OpenAPIV3.ReferenceObject | undefined,
+  ): OpenAPIV3.RequestBodyObject | undefined {
+    if (!requestBody || !("$ref" in requestBody)) {
+      return requestBody
+    }
+
+    const refPrefix = "#/components/requestBodies/"
+    if (!requestBody.$ref.startsWith(refPrefix)) {
+      return undefined
+    }
+
+    const requestBodyName = requestBody.$ref.slice(refPrefix.length)
+    const resolvedRequestBody = this.openApiSpec?.components?.requestBodies?.[requestBodyName]
+
+    if (!resolvedRequestBody || "$ref" in resolvedRequestBody) {
+      return undefined
+    }
+
+    return resolvedRequestBody
+  }
+
+  private getRequestContentType(method: string, path: string): string | undefined {
+    const pathItem = this.openApiSpec?.paths[path]
+    const normalizedMethod = method.toLowerCase()
+
+    if (!isValidHttpMethod(normalizedMethod)) {
+      return undefined
+    }
+
+    const operation = (pathItem as any)?.[normalizedMethod] as
+      | OpenAPIV3.OperationObject
+      | OpenAPIV3.ReferenceObject
+      | undefined
+
+    if (!operation || "$ref" in operation) {
+      return undefined
+    }
+
+    const requestBody = this.resolveRequestBodyObject(operation.requestBody)
+    const content = requestBody?.content
+
+    if (!content) {
+      return undefined
+    }
+
+    if (content["application/json"]) {
+      return "application/json"
+    }
+
+    return Object.keys(content)[0]
   }
 
   /**
@@ -281,6 +335,10 @@ export class ApiClient {
       } else {
         // For POST-like methods, remaining parameters go in the request body
         config.data = Object.keys(paramsCopy).length > 0 ? paramsCopy : {}
+
+        // Set Content-Type from OpenAPI spec metadata, defaulting to application/json
+        const contentType = (toolDef?.inputSchema as any)?.["x-content-type"] || "application/json"
+        config.headers["Content-Type"] = contentType
       }
 
       // Execute the request
@@ -595,7 +653,7 @@ export class ApiClient {
     const config: any = {
       method: method.toLowerCase(),
       url: path,
-      headers: authHeaders,
+      headers: { ...authHeaders },
     }
 
     // Handle parameters based on HTTP method
@@ -605,6 +663,8 @@ export class ApiClient {
     } else {
       // For POST-like methods, parameters go in the request body
       config.data = params
+      config.headers["Content-Type"] =
+        this.getRequestContentType(method, path) || "application/json"
     }
 
     try {

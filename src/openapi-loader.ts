@@ -608,13 +608,16 @@ export class OpenAPISpecLoader {
 
           // Handle different content types
           let mediaTypeObj: OpenAPIV3.MediaTypeObject | undefined
+          let selectedContentType: string | undefined
 
           if (requestBodyObj.content["application/json"]) {
             mediaTypeObj = requestBodyObj.content["application/json"]
+            selectedContentType = "application/json"
           } else if (Object.keys(requestBodyObj.content).length > 0) {
             // Take the first available content type
             const firstContentType = Object.keys(requestBodyObj.content)[0]
             mediaTypeObj = requestBodyObj.content[firstContentType]
+            selectedContentType = firstContentType
           }
 
           if (mediaTypeObj?.schema) {
@@ -668,6 +671,11 @@ export class OpenAPISpecLoader {
               tool.inputSchema.properties!["body"] = inlinedSchema
               requiredParams.push("body")
             }
+          }
+
+          // Store the content type in the final input schema for use by ApiClient
+          if (selectedContentType) {
+            ;(tool.inputSchema as any)["x-content-type"] = selectedContentType
           }
         }
 
