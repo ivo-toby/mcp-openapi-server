@@ -150,10 +150,19 @@ describe("loadConfig", () => {
       headers: {
         Authorization: "Bearer token",
       },
+      clientCertPath: undefined,
+      clientKeyPath: undefined,
+      caCertPath: undefined,
+      clientKeyPassphrase: undefined,
+      rejectUnauthorized: true,
       transportType: "stdio",
       httpPort: 3000,
       httpHost: "127.0.0.1",
       endpointPath: "/mcp",
+      promptsPath: undefined,
+      promptsInline: undefined,
+      resourcesPath: undefined,
+      resourcesInline: undefined,
       includeTools: undefined,
       includeTags: undefined,
       includeResources: undefined,
@@ -245,10 +254,19 @@ describe("loadConfig", () => {
       headers: {
         "X-API-Key": "12345",
       },
+      clientCertPath: undefined,
+      clientKeyPath: undefined,
+      caCertPath: undefined,
+      clientKeyPassphrase: undefined,
+      rejectUnauthorized: true,
       transportType: "stdio",
       httpPort: 3000,
       httpHost: "127.0.0.1",
       endpointPath: "/mcp",
+      promptsPath: undefined,
+      promptsInline: undefined,
+      resourcesPath: undefined,
+      resourcesInline: undefined,
       includeTools: undefined,
       includeTags: undefined,
       includeResources: undefined,
@@ -421,10 +439,19 @@ describe("loadConfig", () => {
       headers: {
         Authorization: "Bearer token",
       },
+      clientCertPath: undefined,
+      clientKeyPath: undefined,
+      caCertPath: undefined,
+      clientKeyPassphrase: undefined,
+      rejectUnauthorized: true,
       transportType: "stdio",
       httpPort: 3000,
       httpHost: "127.0.0.1",
       endpointPath: "/mcp",
+      promptsPath: undefined,
+      promptsInline: undefined,
+      resourcesPath: undefined,
+      resourcesInline: undefined,
       includeTools: undefined,
       includeTags: undefined,
       includeResources: undefined,
@@ -455,6 +482,68 @@ describe("loadConfig", () => {
     const config = loadConfig()
     expect(config.specInputMethod).toBe("file")
     expect(config.openApiSpec).toBe("./spec.json")
+  })
+
+  it("should load mTLS options from command line arguments", async () => {
+    vi.doMock("yargs", () => ({
+      default: vi.fn().mockReturnValue({
+        option: vi.fn().mockReturnThis(),
+        help: vi.fn().mockReturnThis(),
+        parseSync: vi.fn().mockReturnValue({
+          "api-base-url": "https://api.example.com",
+          "openapi-spec": "./spec.json",
+          "client-cert": "/tmp/client.pem",
+          "client-key": "/tmp/client-key.pem",
+          "ca-cert": "/tmp/ca.pem",
+          "client-key-passphrase": "secret-passphrase",
+          "reject-unauthorized": false,
+        }),
+      }),
+    }))
+
+    vi.doMock("yargs/helpers", () => ({
+      hideBin: vi.fn((arr) => arr),
+    }))
+
+    const { loadConfig } = await import("../src/config")
+
+    const config = loadConfig()
+    expect(config.clientCertPath).toBe("/tmp/client.pem")
+    expect(config.clientKeyPath).toBe("/tmp/client-key.pem")
+    expect(config.caCertPath).toBe("/tmp/ca.pem")
+    expect(config.clientKeyPassphrase).toBe("secret-passphrase")
+    expect(config.rejectUnauthorized).toBe(false)
+  })
+
+  it("should load mTLS options from environment variables", async () => {
+    vi.doMock("yargs", () => ({
+      default: vi.fn().mockReturnValue({
+        option: vi.fn().mockReturnThis(),
+        help: vi.fn().mockReturnThis(),
+        parseSync: vi.fn().mockReturnValue({}),
+      }),
+    }))
+
+    vi.doMock("yargs/helpers", () => ({
+      hideBin: vi.fn((arr) => arr),
+    }))
+
+    process.env.API_BASE_URL = "https://env.example.com"
+    process.env.OPENAPI_SPEC_PATH = "./env-spec.json"
+    process.env.CLIENT_CERT_PATH = "/env/client.pem"
+    process.env.CLIENT_KEY_PATH = "/env/client-key.pem"
+    process.env.CA_CERT_PATH = "/env/ca.pem"
+    process.env.CLIENT_KEY_PASSPHRASE = "env-passphrase"
+    process.env.REJECT_UNAUTHORIZED = "false"
+
+    const { loadConfig } = await import("../src/config")
+
+    const config = loadConfig()
+    expect(config.clientCertPath).toBe("/env/client.pem")
+    expect(config.clientKeyPath).toBe("/env/client-key.pem")
+    expect(config.caCertPath).toBe("/env/ca.pem")
+    expect(config.clientKeyPassphrase).toBe("env-passphrase")
+    expect(config.rejectUnauthorized).toBe(false)
   })
 
   it("should load config with stdin spec", async () => {

@@ -1,5 +1,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
+import { readFileSync } from "node:fs"
+import { Agent as HttpsAgent } from "node:https"
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
@@ -11,7 +13,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js"
 import { OpenAPIMCPServerConfig } from "./config"
 import { ToolsManager } from "./tools-manager"
-import { ApiClient } from "./api-client"
+import { ApiClient, type ApiClientOptions } from "./api-client"
 import { StaticAuthProvider } from "./auth-provider.js"
 import { PromptsManager } from "./prompts-manager"
 import { ResourcesManager } from "./resources-manager"
@@ -52,21 +54,49 @@ export class OpenAPIServer {
       capabilities.resources = {}
     }
 
-    this.server = new Server(
-      { name: config.name, version: config.version },
-      { capabilities },
-    )
+    this.server = new Server({ name: config.name, version: config.version }, { capabilities })
     this.toolsManager = new ToolsManager(config)
 
     // Use AuthProvider if provided, otherwise fallback to static headers
     const authProviderOrHeaders = config.authProvider || new StaticAuthProvider(config.headers)
-    this.apiClient = new ApiClient(
-      config.apiBaseUrl,
-      authProviderOrHeaders,
-      this.toolsManager.getSpecLoader(),
-    )
+    const apiClientOptions = this.createApiClientOptions()
+    this.apiClient = apiClientOptions
+      ? new ApiClient(
+          config.apiBaseUrl,
+          authProviderOrHeaders,
+          this.toolsManager.getSpecLoader(),
+          apiClientOptions,
+        )
+      : new ApiClient(config.apiBaseUrl, authProviderOrHeaders, this.toolsManager.getSpecLoader())
 
     this.initializeHandlers()
+  }
+
+  private createApiClientOptions(): ApiClientOptions | undefined {
+    const shouldConfigureHttpsAgent =
+      !!this.config.clientCertPath ||
+      !!this.config.clientKeyPath ||
+      !!this.config.caCertPath ||
+      !!this.config.clientKeyPassphrase ||
+      this.config.rejectUnauthorized === false
+
+    if (!shouldConfigureHttpsAgent) {
+      return undefined
+    }
+
+    return {
+      httpsAgent: new HttpsAgent({
+        cert: this.config.clientCertPath
+          ? readFileSync(this.config.clientCertPath, "utf8")
+          : undefined,
+        key: this.config.clientKeyPath
+          ? readFileSync(this.config.clientKeyPath, "utf8")
+          : undefined,
+        ca: this.config.caCertPath ? readFileSync(this.config.caCertPath, "utf8") : undefined,
+        passphrase: this.config.clientKeyPassphrase,
+        rejectUnauthorized: this.config.rejectUnauthorized,
+      }),
+    }
   }
 
   /**
@@ -141,10 +171,7 @@ export class OpenAPIServer {
       }))
 
       this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-        return this.promptsManager!.getPrompt(
-          request.params.name,
-          request.params.arguments,
-        )
+        return this.promptsManager!.getPrompt(request.params.name, request.params.arguments)
       })
     }
 
@@ -196,4 +223,3 @@ export class OpenAPIServer {
     return this.resourcesManager
   }
 }
-

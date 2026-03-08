@@ -1,5 +1,6 @@
 import axios, { AxiosInstance, AxiosError } from "axios"
 import { Tool } from "@modelcontextprotocol/sdk/types.js"
+import type { Agent as HttpsAgent } from "node:https"
 import { AuthProvider, StaticAuthProvider, isAuthError } from "./auth-provider.js"
 import { parseToolId as parseToolIdUtil, generateToolId } from "./utils/tool-id.js"
 import { isValidHttpMethod, isGetLikeMethod, VALID_HTTP_METHODS } from "./utils/http-methods.js"
@@ -40,11 +41,13 @@ export class ApiClient {
    * @param baseUrl - Base URL for the API
    * @param authProviderOrHeaders - AuthProvider instance or static headers for backward compatibility
    * @param specLoader - Optional OpenAPI spec loader for dynamic meta-tools
+   * @param options - Optional HTTP client configuration
    */
   constructor(
     baseUrl: string,
     authProviderOrHeaders?: AuthProvider | Record<string, string>,
     specLoader?: OpenAPISpecLoader,
+    options?: ApiClientOptions,
   ) {
     this.axiosInstance = axios.create({
       baseURL: baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`,
@@ -52,6 +55,7 @@ export class ApiClient {
       maxContentLength: 50 * 1024 * 1024, // 50MB response body limit
       maxBodyLength: 50 * 1024 * 1024, // 50MB request body limit
       maxRedirects: 5, // Limit redirect chains to prevent abuse
+      httpsAgent: options?.httpsAgent,
     })
 
     // Handle backward compatibility
@@ -688,4 +692,8 @@ export class ApiClient {
       throw error
     }
   }
+}
+
+export interface ApiClientOptions {
+  httpsAgent?: HttpsAgent
 }

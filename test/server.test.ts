@@ -5,11 +5,15 @@ import type { AuthProvider } from "../src/auth-provider"
 vi.mock("@modelcontextprotocol/sdk/server/index.js")
 vi.mock("@modelcontextprotocol/sdk/server/transport.js")
 vi.mock("@modelcontextprotocol/sdk/types.js")
+vi.mock("node:fs")
+vi.mock("node:https")
 vi.mock("../src/tools-manager")
 vi.mock("../src/api-client")
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
+import * as fs from "node:fs"
+import * as https from "node:https"
 
 // Create a dummy interface that implements the Transport interface
 interface ServerTransport extends Transport {
@@ -84,6 +88,14 @@ describe("OpenAPIServer", () => {
           setTools: vi.fn(),
           setOpenApiSpec: vi.fn(),
         }) as any,
+    )
+
+    vi.mocked(fs.readFileSync).mockImplementation((filePath: fs.PathOrFileDescriptor) => {
+      return `mock:${String(filePath)}`
+    })
+
+    vi.mocked(https.Agent).mockImplementation(
+      (options?: https.AgentOptions) => ({ options }) as https.Agent,
     )
 
     server = new OpenAPIServer(config)
@@ -507,6 +519,58 @@ describe("OpenAPIServer", () => {
 
       // Verify ApiClient was constructed with the AuthProvider, not the headers
       expect(ApiClient).toHaveBeenCalledWith(config.apiBaseUrl, mockAuthProvider, expect.anything())
+    })
+
+    it("should create an HTTPS agent for mTLS settings", () => {
+      const mtlsConfig: OpenAPIMCPServerConfig = {
+        ...config,
+        clientCertPath: "/certs/client.pem",
+        clientKeyPath: "/certs/client-key.pem",
+        caCertPath: "/certs/ca.pem",
+        clientKeyPassphrase: "top-secret",
+        rejectUnauthorized: false,
+      }
+
+      new OpenAPIServer(mtlsConfig)
+
+      expect(fs.readFileSync).toHaveBeenCalledWith("/certs/client.pem", "utf8")
+      expect(fs.readFileSync).toHaveBeenCalledWith("/certs/client-key.pem", "utf8")
+      expect(fs.readFileSync).toHaveBeenCalledWith("/certs/ca.pem", "utf8")
+      expect(https.Agent).toHaveBeenCalledWith({
+        cert: "mock:/certs/client.pem",
+        key: "mock:/certs/client-key.pem",
+        ca: "mock:/certs/ca.pem",
+        passphrase: "top-secret",
+        rejectUnauthorized: false,
+      })
+      expect(ApiClient).toHaveBeenCalledWith(
+        config.apiBaseUrl,
+        expect.objectContaining({
+          getAuthHeaders: expect.any(Function),
+          handleAuthError: expect.any(Function),
+        }),
+        expect.anything(),
+        { httpsAgent: expect.anything() },
+      )
+    })
+
+    it("should create an HTTPS agent when only TLS verification override is set", () => {
+      const tlsConfig: OpenAPIMCPServerConfig = {
+        ...config,
+        rejectUnauthorized: false,
+      }
+
+      new OpenAPIServer(tlsConfig)
+
+      expect(https.Agent).toHaveBeenCalledWith({
+        rejectUnauthorized: false,
+      })
+      expect(ApiClient).toHaveBeenCalledWith(
+        config.apiBaseUrl,
+        expect.anything(),
+        expect.anything(),
+        { httpsAgent: expect.anything() },
+      )
     })
   })
 })

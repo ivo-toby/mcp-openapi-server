@@ -36,7 +36,6 @@ The server supports two transport methods:
 No need to clone this repository. Simply configure Claude Desktop to use this MCP server:
 
 1. Locate or create your Claude Desktop configuration file:
-
    - On macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
 
 2. Add the following configuration:
@@ -120,6 +119,11 @@ The server can be configured through environment variables or command line argum
 - `OPENAPI_SPEC_FROM_STDIN` - Set to "true" to read OpenAPI spec from standard input
 - `OPENAPI_SPEC_INLINE` - Provide OpenAPI spec content directly as a string
 - `API_HEADERS` - Comma-separated key:value pairs for API headers
+- `CLIENT_CERT_PATH` - Path to client certificate PEM file for mutual TLS
+- `CLIENT_KEY_PATH` - Path to client private key PEM file for mutual TLS
+- `CA_CERT_PATH` - Path to custom CA certificate PEM file for private/internal CAs
+- `CLIENT_KEY_PASSPHRASE` - Passphrase for an encrypted client private key
+- `REJECT_UNAUTHORIZED` - Whether to reject untrusted server certificates (default: `true`)
 - `SERVER_NAME` - Name for the MCP server (default: "mcp-openapi-server")
 - `SERVER_VERSION` - Version of the server (default: "1.0.0")
 - `TRANSPORT_TYPE` - Transport type to use: "stdio" or "http" (default: "stdio")
@@ -140,6 +144,8 @@ npx @ivotoby/openapi-mcp-server \
   --api-base-url https://api.example.com \
   --openapi-spec https://api.example.com/openapi.json \
   --headers "Authorization:Bearer token123,X-API-Key:your-api-key" \
+  --client-cert ./certs/client.pem \
+  --client-key ./certs/client-key.pem \
   --name "my-mcp-server" \
   --server-version "1.0.0" \
   --transport http \
@@ -148,6 +154,40 @@ npx @ivotoby/openapi-mcp-server \
   --path /mcp \
   --disable-abbreviation true
 ```
+
+## Mutual TLS (mTLS)
+
+If your upstream API requires client certificate authentication, you can attach TLS credentials directly to outbound requests.
+
+```bash
+npx @ivotoby/openapi-mcp-server \
+  --api-base-url https://secure-api.example.com \
+  --openapi-spec https://secure-api.example.com/openapi.json \
+  --client-cert ./certs/client.pem \
+  --client-key ./certs/client-key.pem \
+  --headers "Authorization:Bearer token123"
+```
+
+This is orthogonal to HTTP-level auth, so mTLS can be combined with static headers or an `AuthProvider`.
+
+For private CAs or encrypted keys:
+
+```bash
+npx @ivotoby/openapi-mcp-server \
+  --api-base-url https://internal-api.example.com \
+  --openapi-spec ./openapi.yaml \
+  --client-cert ./certs/client.pem \
+  --client-key ./certs/client-key.pem \
+  --client-key-passphrase "$CLIENT_KEY_PASSPHRASE" \
+  --ca-cert ./certs/internal-ca.pem \
+  --reject-unauthorized false
+```
+
+- `--client-cert` / `CLIENT_CERT_PATH`: client certificate PEM file
+- `--client-key` / `CLIENT_KEY_PATH`: client private key PEM file
+- `--client-key-passphrase` / `CLIENT_KEY_PASSPHRASE`: passphrase for encrypted private keys
+- `--ca-cert` / `CA_CERT_PATH`: custom CA bundle for private/internal certificate authorities
+- `--reject-unauthorized` / `REJECT_UNAUTHORIZED`: set to `false` only when you intentionally want to allow self-signed or otherwise untrusted server certificates
 
 ## OpenAPI Specification Loading
 
@@ -286,11 +326,11 @@ In addition to exposing OpenAPI endpoints as **tools**, this server can expose *
 
 ### What Are Prompts and Resources?
 
-| Feature | Purpose | Use Case |
-|---------|---------|----------|
-| **Tools** | API endpoints for the AI to execute | Making API calls |
-| **Prompts** | Templated messages with argument substitution | Reusable workflow templates |
-| **Resources** | Read-only content for context | API documentation, schemas |
+| Feature       | Purpose                                       | Use Case                    |
+| ------------- | --------------------------------------------- | --------------------------- |
+| **Tools**     | API endpoints for the AI to execute           | Making API calls            |
+| **Prompts**   | Templated messages with argument substitution | Reusable workflow templates |
+| **Resources** | Read-only content for context                 | API documentation, schemas  |
 
 ### Loading Prompts
 
@@ -434,11 +474,13 @@ curl http://localhost:3000/health
 ```
 
 **Health Response Fields:**
+
 - `status`: Always returns "healthy" when server is running
 - `activeSessions`: Number of active MCP sessions
 - `uptime`: Server uptime in seconds
 
 **Key Features:**
+
 - No authentication required
 - Works with any HTTP method (GET, POST, etc.)
 - Ideal for load balancers, Kubernetes probes, and monitoring systems
@@ -470,7 +512,6 @@ HEALTHCHECK --interval=30s --timeout=3s \
 To see debug logs:
 
 1. When using stdio transport with Claude Desktop:
-
    - Logs appear in the Claude Desktop logs
 
 2. When using HTTP transport:
@@ -630,15 +671,16 @@ if (resourcesManager) {
 
 ```typescript
 interface PromptDefinition {
-  name: string            // Unique identifier
-  title?: string          // Human-readable display title
-  description?: string    // Description of the prompt
-  arguments?: {           // Template arguments
+  name: string // Unique identifier
+  title?: string // Human-readable display title
+  description?: string // Description of the prompt
+  arguments?: {
+    // Template arguments
     name: string
     description?: string
     required?: boolean
   }[]
-  template: string        // Template with {{argName}} placeholders
+  template: string // Template with {{argName}} placeholders
 }
 ```
 
@@ -646,14 +688,14 @@ interface PromptDefinition {
 
 ```typescript
 interface ResourceDefinition {
-  uri: string             // Unique URI identifier
-  name: string            // Resource name
-  title?: string          // Human-readable display title
-  description?: string    // Description of the resource
-  mimeType?: string       // Content MIME type
-  text?: string           // Static text content
-  blob?: string           // Static binary content (base64)
-  contentProvider?: () => Promise<string | { blob: string }>  // Dynamic content
+  uri: string // Unique URI identifier
+  name: string // Resource name
+  title?: string // Human-readable display title
+  description?: string // Description of the resource
+  mimeType?: string // Content MIME type
+  text?: string // Static text content
+  blob?: string // Static binary content (base64)
+  contentProvider?: () => Promise<string | { blob: string }> // Dynamic content
 }
 ```
 
