@@ -7,6 +7,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js"
 import * as http from "http"
 import { randomUUID } from "crypto"
+import { Logger } from "../utils/logger"
 
 /**
  * Session data for a connected client
@@ -37,6 +38,7 @@ export class StreamableHttpServerTransport implements Transport {
   private requestSessionMap: Map<string | number, string> = new Map() // Maps request IDs to session IDs
   private readonly healthCheckPath = "/health"
   private readonly isExternalServer: boolean // Track if using an external server
+  private logger: Logger
 
   /**
    * Initialize a new StreamableHttpServerTransport
@@ -57,8 +59,10 @@ export class StreamableHttpServerTransport implements Transport {
     private host: string = "127.0.0.1",
     private endpointPath: string = "/mcp",
     server?: http.Server,
+    verbose: boolean = true,
   ) {
     this.isExternalServer = !!server
+    this.logger = new Logger(verbose)
     if (server) {
       // External server provided - attach our request handler to it
       this.server = server
@@ -95,7 +99,7 @@ export class StreamableHttpServerTransport implements Transport {
     return new Promise<void>((resolve, reject) => {
       this.server.listen(this.port, this.host, () => {
         this.started = true
-        console.error(
+        this.logger.error(
           `Streamable HTTP transport listening on http://${this.host}:${this.port}${this.endpointPath}`,
         )
         resolve()
@@ -159,19 +163,19 @@ export class StreamableHttpServerTransport implements Transport {
    * @param message JSON-RPC message
    */
   async send(message: JSONRPCMessage): Promise<void> {
-    console.error(`StreamableHttpServerTransport: Sending message: ${JSON.stringify(message)}`)
+    this.logger.error(`StreamableHttpServerTransport: Sending message: ${JSON.stringify(message)}`)
     let targetSessionId: string | undefined
     let messageIdForThisResponse: string | number | null = null
 
     if (isJSONRPCResponse(message) && message.id !== null) {
       messageIdForThisResponse = message.id
       targetSessionId = this.requestSessionMap.get(messageIdForThisResponse)
-      console.error(
+      this.logger.error(
         `StreamableHttpServerTransport: Potential target session for response ID ${messageIdForThisResponse}: ${targetSessionId}`,
       )
 
       if (targetSessionId && this.initResponseHandlers.has(targetSessionId)) {
-        console.error(
+        this.logger.error(
           `StreamableHttpServerTransport: Session ${targetSessionId} has initResponseHandlers. Invoking them for message ID ${messageIdForThisResponse}.`,
         )
         const handlers = this.initResponseHandlers.get(targetSessionId)!
@@ -180,12 +184,12 @@ export class StreamableHttpServerTransport implements Transport {
 
         // If the request ID is no longer in the map, an initResponseHandler handled it (and removed it).
         if (!this.requestSessionMap.has(messageIdForThisResponse)) {
-          console.error(
+          this.logger.error(
             `StreamableHttpServerTransport: Response for ID ${messageIdForThisResponse} was handled by an initResponseHandler (e.g., synchronous POST response for initialize or tools/list).`,
           )
           return // Exit, as response was sent on POST by the handler.
         } else {
-          console.error(
+          this.logger.error(
             `StreamableHttpServerTransport: Response for ID ${messageIdForThisResponse} was NOT exclusively handled by an initResponseHandler or handler did not remove from requestSessionMap. Proceeding to GET stream / broadcast if applicable.`,
           )
         }
@@ -196,7 +200,7 @@ export class StreamableHttpServerTransport implements Transport {
       // ensure the request ID is removed from the map as we are about to process it for streaming or completion.
       // This applies to standard request-responses that go to the GET stream.
       if (this.requestSessionMap.has(messageIdForThisResponse)) {
-        console.error(
+        this.logger.error(
           `StreamableHttpServerTransport: Deleting request ID ${messageIdForThisResponse} from requestSessionMap as it's being processed for GET stream or broadcast.`,
         )
         this.requestSessionMap.delete(messageIdForThisResponse)
@@ -214,7 +218,7 @@ export class StreamableHttpServerTransport implements Transport {
           : isJSONRPCRequest(message)
             ? message.id
             : "N/A"
-      console.warn(
+      this.logger.warn(
         `StreamableHttpServerTransport: No specific target session for message (ID: ${idForLog}). Broadcasting to all applicable sessions.`,
       )
       for (const [sid, session] of this.sessions.entries()) {
@@ -228,14 +232,14 @@ export class StreamableHttpServerTransport implements Transport {
     // If targetSessionId is known (it's a response to a request that was not handled synchronously by initResponseHandler)
     const session = this.sessions.get(targetSessionId)
     if (session && session.activeResponses.size > 0) {
-      console.error(
+      this.logger.error(
         `StreamableHttpServerTransport: Sending message (ID: ${messageIdForThisResponse}) to GET stream for session ${targetSessionId} (${session.activeResponses.size} active connections).`,
       )
       this.sendMessageToSession(targetSessionId, session, message)
     } else if (targetSessionId) {
       // This case means a response was generated for a session, it wasn't handled by initResponseHandlers,
       // but the session has no active GET connections. The message might be lost for the client.
-      console.error(
+      this.logger.error(
         `StreamableHttpServerTransport: No active GET connections for session ${targetSessionId} to send message (ID: ${messageIdForThisResponse}). Message might not be delivered if not handled by POST.`,
       )
     }

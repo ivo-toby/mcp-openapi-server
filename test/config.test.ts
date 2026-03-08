@@ -104,6 +104,7 @@ describe("loadConfig", () => {
     delete process.env.CA_CERT_PATH
     delete process.env.CLIENT_KEY_PASSPHRASE
     delete process.env.REJECT_UNAUTHORIZED
+    delete process.env.VERBOSE
 
     // Reset mocks before each test
     vi.clearAllMocks()
@@ -174,6 +175,7 @@ describe("loadConfig", () => {
       includeOperations: undefined,
       toolsMode: "all",
       disableAbbreviation: undefined,
+      verbose: true,
     })
   })
 
@@ -244,6 +246,7 @@ describe("loadConfig", () => {
     process.env.SERVER_NAME = "env-server"
     process.env.SERVER_VERSION = "3.2.1"
     process.env.TRANSPORT_TYPE = "stdio"
+    process.env.VERBOSE = "false"
 
     // Import the module after setting up mocks
     const { loadConfig } = await import("../src/config")
@@ -278,6 +281,7 @@ describe("loadConfig", () => {
       includeOperations: undefined,
       toolsMode: "all",
       disableAbbreviation: undefined,
+      verbose: false,
     })
   })
 
@@ -463,7 +467,54 @@ describe("loadConfig", () => {
       includeOperations: undefined,
       toolsMode: "all",
       disableAbbreviation: undefined,
+      verbose: true,
     })
+  })
+
+  it("should disable verbose logging from command line arguments", async () => {
+    vi.doMock("yargs", () => ({
+      default: vi.fn().mockReturnValue({
+        option: vi.fn().mockReturnThis(),
+        help: vi.fn().mockReturnThis(),
+        parseSync: vi.fn().mockReturnValue({
+          "api-base-url": "https://api.example.com",
+          "openapi-spec": "./spec.json",
+          verbose: false,
+        }),
+      }),
+    }))
+
+    vi.doMock("yargs/helpers", () => ({
+      hideBin: vi.fn((arr) => arr),
+    }))
+
+    const { loadConfig } = await import("../src/config")
+
+    const config = loadConfig()
+    expect(config.verbose).toBe(false)
+  })
+
+  it("should disable verbose logging from environment variables", async () => {
+    vi.doMock("yargs", () => ({
+      default: vi.fn().mockReturnValue({
+        option: vi.fn().mockReturnThis(),
+        help: vi.fn().mockReturnThis(),
+        parseSync: vi.fn().mockReturnValue({}),
+      }),
+    }))
+
+    vi.doMock("yargs/helpers", () => ({
+      hideBin: vi.fn((arr) => arr),
+    }))
+
+    process.env.API_BASE_URL = "https://env.example.com"
+    process.env.OPENAPI_SPEC_PATH = "./env-spec.json"
+    process.env.VERBOSE = "false"
+
+    const { loadConfig } = await import("../src/config")
+
+    const config = loadConfig()
+    expect(config.verbose).toBe(false)
   })
 
   it("should load config with local file spec", async () => {
