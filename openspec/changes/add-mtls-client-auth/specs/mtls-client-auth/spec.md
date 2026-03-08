@@ -23,10 +23,15 @@ The server SHALL configure outbound API requests with client certificate materia
 - **WHEN** the server is configured with both a client certificate path and client key path
 - **THEN** outbound API requests use an HTTPS agent initialized with the loaded PEM certificate and key
 
-#### Scenario: Server certificate validation override is disabled
+#### Scenario: TLS verification is disabled
 
 - **WHEN** the user sets `rejectUnauthorized` to `false`
 - **THEN** the HTTPS agent allows self-signed or otherwise untrusted server certificates
+
+#### Scenario: TLS options require HTTPS upstream URLs
+
+- **WHEN** the user provides TLS-related settings for an `apiBaseUrl` that does not use `https://`
+- **THEN** the server fails fast with a clear configuration error
 
 #### Scenario: Private CA bundle is configured
 

@@ -524,6 +524,7 @@ describe("OpenAPIServer", () => {
     it("should create an HTTPS agent for mTLS settings", () => {
       const mtlsConfig: OpenAPIMCPServerConfig = {
         ...config,
+        apiBaseUrl: "https://localhost",
         clientCertPath: "/certs/client.pem",
         clientKeyPath: "/certs/client-key.pem",
         caCertPath: "/certs/ca.pem",
@@ -544,7 +545,7 @@ describe("OpenAPIServer", () => {
         rejectUnauthorized: false,
       })
       expect(ApiClient).toHaveBeenCalledWith(
-        config.apiBaseUrl,
+        mtlsConfig.apiBaseUrl,
         expect.objectContaining({
           getAuthHeaders: expect.any(Function),
           handleAuthError: expect.any(Function),
@@ -557,6 +558,7 @@ describe("OpenAPIServer", () => {
     it("should create an HTTPS agent when only TLS verification override is set", () => {
       const tlsConfig: OpenAPIMCPServerConfig = {
         ...config,
+        apiBaseUrl: "https://localhost",
         rejectUnauthorized: false,
       }
 
@@ -566,7 +568,7 @@ describe("OpenAPIServer", () => {
         rejectUnauthorized: false,
       })
       expect(ApiClient).toHaveBeenCalledWith(
-        config.apiBaseUrl,
+        tlsConfig.apiBaseUrl,
         expect.anything(),
         expect.anything(),
         { httpsAgent: expect.anything() },
@@ -581,6 +583,17 @@ describe("OpenAPIServer", () => {
 
       expect(() => new OpenAPIServer(invalidTlsConfig)).toThrow(
         "clientCertPath and clientKeyPath must be provided together",
+      )
+    })
+
+    it("should reject TLS options for non-https apiBaseUrl", () => {
+      const invalidTlsConfig: OpenAPIMCPServerConfig = {
+        ...config,
+        rejectUnauthorized: false,
+      }
+
+      expect(() => new OpenAPIServer(invalidTlsConfig)).toThrow(
+        "TLS options require apiBaseUrl to use https://",
       )
     })
   })

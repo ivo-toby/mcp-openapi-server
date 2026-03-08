@@ -92,6 +92,10 @@ export class OpenAPIServer {
       return undefined
     }
 
+    if (!this.config.apiBaseUrl.startsWith("https://")) {
+      throw new Error("TLS options require apiBaseUrl to use https://")
+    }
+
     const httpsAgentOptions: ConstructorParameters<typeof HttpsAgent>[0] = {
       rejectUnauthorized,
     }

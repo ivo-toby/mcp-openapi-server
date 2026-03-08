@@ -170,6 +170,8 @@ npx @ivotoby/openapi-mcp-server \
 
 This is orthogonal to HTTP-level auth, so mTLS can be combined with static headers or an `AuthProvider`.
 
+TLS-related options only apply when `--api-base-url` uses `https://`.
+
 For private CAs or encrypted keys:
 
 ```bash

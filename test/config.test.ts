@@ -616,7 +616,7 @@ describe("loadConfig", () => {
 
     const { loadConfig } = await import("../src/config")
 
-    expect(() => loadConfig()).toThrow("rejectUnauthorized must be one of")
+    expect(() => loadConfig()).toThrow("--reject-unauthorized/REJECT_UNAUTHORIZED must be one of")
   })
 
   it("should load config with stdin spec", async () => {

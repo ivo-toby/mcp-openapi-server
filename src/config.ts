@@ -299,7 +299,7 @@ export function loadConfig(): OpenAPIMCPServerConfig {
   const headers = parseHeaders(argv.headers || process.env.API_HEADERS)
   const rejectUnauthorizedInput = parseOptionalBoolean(
     argv["reject-unauthorized"] ?? process.env.REJECT_UNAUTHORIZED,
-    "rejectUnauthorized",
+    "--reject-unauthorized/REJECT_UNAUTHORIZED",
   )
 
   return {
