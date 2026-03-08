@@ -73,29 +73,44 @@ export class OpenAPIServer {
   }
 
   private createApiClientOptions(): ApiClientOptions | undefined {
+    const hasClientCert = !!this.config.clientCertPath
+    const hasClientKey = !!this.config.clientKeyPath
+
+    if (hasClientCert !== hasClientKey) {
+      throw new Error("clientCertPath and clientKeyPath must be provided together")
+    }
+
+    const rejectUnauthorized = this.config.rejectUnauthorized ?? true
     const shouldConfigureHttpsAgent =
-      !!this.config.clientCertPath ||
-      !!this.config.clientKeyPath ||
+      hasClientCert ||
+      hasClientKey ||
       !!this.config.caCertPath ||
       !!this.config.clientKeyPassphrase ||
-      this.config.rejectUnauthorized === false
+      rejectUnauthorized === false
 
     if (!shouldConfigureHttpsAgent) {
       return undefined
     }
 
+    const httpsAgentOptions: ConstructorParameters<typeof HttpsAgent>[0] = {
+      rejectUnauthorized,
+    }
+
+    if (this.config.clientCertPath) {
+      httpsAgentOptions.cert = readFileSync(this.config.clientCertPath, "utf8")
+    }
+    if (this.config.clientKeyPath) {
+      httpsAgentOptions.key = readFileSync(this.config.clientKeyPath, "utf8")
+    }
+    if (this.config.caCertPath) {
+      httpsAgentOptions.ca = readFileSync(this.config.caCertPath, "utf8")
+    }
+    if (this.config.clientKeyPassphrase) {
+      httpsAgentOptions.passphrase = this.config.clientKeyPassphrase
+    }
+
     return {
-      httpsAgent: new HttpsAgent({
-        cert: this.config.clientCertPath
-          ? readFileSync(this.config.clientCertPath, "utf8")
-          : undefined,
-        key: this.config.clientKeyPath
-          ? readFileSync(this.config.clientKeyPath, "utf8")
-          : undefined,
-        ca: this.config.caCertPath ? readFileSync(this.config.caCertPath, "utf8") : undefined,
-        passphrase: this.config.clientKeyPassphrase,
-        rejectUnauthorized: this.config.rejectUnauthorized,
-      }),
+      httpsAgent: new HttpsAgent(httpsAgentOptions),
     }
   }
 

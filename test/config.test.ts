@@ -99,6 +99,11 @@ describe("loadConfig", () => {
     delete process.env.ENDPOINT_PATH
     delete process.env.TOOLS_MODE
     delete process.env.DISABLE_ABBREVIATION
+    delete process.env.CLIENT_CERT_PATH
+    delete process.env.CLIENT_KEY_PATH
+    delete process.env.CA_CERT_PATH
+    delete process.env.CLIENT_KEY_PASSPHRASE
+    delete process.env.REJECT_UNAUTHORIZED
 
     // Reset mocks before each test
     vi.clearAllMocks()
@@ -544,6 +549,51 @@ describe("loadConfig", () => {
     expect(config.caCertPath).toBe("/env/ca.pem")
     expect(config.clientKeyPassphrase).toBe("env-passphrase")
     expect(config.rejectUnauthorized).toBe(false)
+  })
+
+  it("should treat uppercase true env values as enabled TLS verification", async () => {
+    vi.doMock("yargs", () => ({
+      default: vi.fn().mockReturnValue({
+        option: vi.fn().mockReturnThis(),
+        help: vi.fn().mockReturnThis(),
+        parseSync: vi.fn().mockReturnValue({}),
+      }),
+    }))
+
+    vi.doMock("yargs/helpers", () => ({
+      hideBin: vi.fn((arr) => arr),
+    }))
+
+    process.env.API_BASE_URL = "https://env.example.com"
+    process.env.OPENAPI_SPEC_PATH = "./env-spec.json"
+    process.env.REJECT_UNAUTHORIZED = "TRUE"
+
+    const { loadConfig } = await import("../src/config")
+
+    const config = loadConfig()
+    expect(config.rejectUnauthorized).toBe(true)
+  })
+
+  it("should reject invalid rejectUnauthorized env values", async () => {
+    vi.doMock("yargs", () => ({
+      default: vi.fn().mockReturnValue({
+        option: vi.fn().mockReturnThis(),
+        help: vi.fn().mockReturnThis(),
+        parseSync: vi.fn().mockReturnValue({}),
+      }),
+    }))
+
+    vi.doMock("yargs/helpers", () => ({
+      hideBin: vi.fn((arr) => arr),
+    }))
+
+    process.env.API_BASE_URL = "https://env.example.com"
+    process.env.OPENAPI_SPEC_PATH = "./env-spec.json"
+    process.env.REJECT_UNAUTHORIZED = "definitely"
+
+    const { loadConfig } = await import("../src/config")
+
+    expect(() => loadConfig()).toThrow("rejectUnauthorized must be one of")
   })
 
   it("should load config with stdin spec", async () => {

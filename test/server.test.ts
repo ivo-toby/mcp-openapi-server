@@ -572,5 +572,16 @@ describe("OpenAPIServer", () => {
         { httpsAgent: expect.anything() },
       )
     })
+
+    it("should reject partial mTLS configuration", () => {
+      const invalidTlsConfig: OpenAPIMCPServerConfig = {
+        ...config,
+        clientCertPath: "/certs/client.pem",
+      }
+
+      expect(() => new OpenAPIServer(invalidTlsConfig)).toThrow(
+        "clientCertPath and clientKeyPath must be provided together",
+      )
+    })
   })
 })

@@ -20,7 +20,7 @@ export interface OpenAPIMCPServerConfig {
   clientKeyPath?: string
   caCertPath?: string
   clientKeyPassphrase?: string
-  rejectUnauthorized: boolean
+  rejectUnauthorized?: boolean
   transportType: "stdio" | "http"
   httpPort?: number
   httpHost?: string
@@ -67,6 +67,30 @@ export function parseHeaders(headerStr?: string): Record<string, string> {
     })
   }
   return headers
+}
+
+function parseOptionalBoolean(value: unknown, optionName: string): boolean | undefined {
+  if (value === undefined || value === null || value === "") {
+    return undefined
+  }
+
+  if (typeof value === "boolean") {
+    return value
+  }
+
+  if (typeof value !== "string") {
+    throw new Error(`${optionName} must be a boolean value`)
+  }
+
+  const normalized = value.trim().toLowerCase()
+  if (["true", "1", "yes", "on"].includes(normalized)) {
+    return true
+  }
+  if (["false", "0", "no", "off"].includes(normalized)) {
+    return false
+  }
+
+  throw new Error(`${optionName} must be one of: true, false, 1, 0, yes, no, on, off`)
 }
 
 /**
@@ -273,9 +297,10 @@ export function loadConfig(): OpenAPIMCPServerConfig {
   }
 
   const headers = parseHeaders(argv.headers || process.env.API_HEADERS)
-  const rejectUnauthorizedInput =
-    argv["reject-unauthorized"] ??
-    (process.env.REJECT_UNAUTHORIZED ? process.env.REJECT_UNAUTHORIZED === "true" : undefined)
+  const rejectUnauthorizedInput = parseOptionalBoolean(
+    argv["reject-unauthorized"] ?? process.env.REJECT_UNAUTHORIZED,
+    "rejectUnauthorized",
+  )
 
   return {
     name: argv.name || process.env.SERVER_NAME || "mcp-openapi-server",
