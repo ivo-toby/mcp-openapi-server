@@ -620,11 +620,6 @@ export class OpenAPISpecLoader {
             selectedContentType = firstContentType
           }
 
-          // Store the content type in the tool's input schema for use by ApiClient
-          if (selectedContentType) {
-            ;(tool.inputSchema as any)["x-content-type"] = selectedContentType
-          }
-
           if (mediaTypeObj?.schema) {
             // Handle schema inlining with proper types
             const inlinedSchema = this.inlineSchema(
@@ -676,6 +671,11 @@ export class OpenAPISpecLoader {
               tool.inputSchema.properties!["body"] = inlinedSchema
               requiredParams.push("body")
             }
+          }
+
+          // Store the content type in the final input schema for use by ApiClient
+          if (selectedContentType) {
+            ;(tool.inputSchema as any)["x-content-type"] = selectedContentType
           }
         }
 

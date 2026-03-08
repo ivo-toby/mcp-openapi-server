@@ -600,7 +600,7 @@ export class ApiClient {
     const config: any = {
       method: method.toLowerCase(),
       url: path,
-      headers: authHeaders,
+      headers: { ...authHeaders },
     }
 
     // Handle parameters based on HTTP method
