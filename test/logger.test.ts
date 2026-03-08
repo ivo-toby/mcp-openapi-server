@@ -46,4 +46,21 @@ describe("Logger", () => {
 
     expect(errorSpy).toHaveBeenCalledWith("error message")
   })
+
+  it("should always emit fatal errors regardless of verbose mode", () => {
+    const logger = new Logger(false)
+
+    logger.fatal("fatal message")
+
+    expect(errorSpy).toHaveBeenCalledWith("fatal message")
+  })
+
+  it("should default setVerbose(undefined) back to enabled logging", () => {
+    const logger = new Logger(false)
+
+    logger.setVerbose(undefined)
+    logger.error("error message")
+
+    expect(errorSpy).toHaveBeenCalledWith("error message")
+  })
 })
