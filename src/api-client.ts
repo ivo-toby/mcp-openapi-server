@@ -99,6 +99,59 @@ export class ApiClient {
     return this.toolsMap.get(toolId)
   }
 
+  private resolveRequestBodyObject(
+    requestBody: OpenAPIV3.RequestBodyObject | OpenAPIV3.ReferenceObject | undefined,
+  ): OpenAPIV3.RequestBodyObject | undefined {
+    if (!requestBody || !("$ref" in requestBody)) {
+      return requestBody
+    }
+
+    const refPrefix = "#/components/requestBodies/"
+    if (!requestBody.$ref.startsWith(refPrefix)) {
+      return undefined
+    }
+
+    const requestBodyName = requestBody.$ref.slice(refPrefix.length)
+    const resolvedRequestBody = this.openApiSpec?.components?.requestBodies?.[requestBodyName]
+
+    if (!resolvedRequestBody || "$ref" in resolvedRequestBody) {
+      return undefined
+    }
+
+    return resolvedRequestBody
+  }
+
+  private getRequestContentType(method: string, path: string): string | undefined {
+    const pathItem = this.openApiSpec?.paths[path]
+    const normalizedMethod = method.toLowerCase()
+
+    if (!isValidHttpMethod(normalizedMethod)) {
+      return undefined
+    }
+
+    const operation = (pathItem as any)?.[normalizedMethod] as
+      | OpenAPIV3.OperationObject
+      | OpenAPIV3.ReferenceObject
+      | undefined
+
+    if (!operation || "$ref" in operation) {
+      return undefined
+    }
+
+    const requestBody = this.resolveRequestBodyObject(operation.requestBody)
+    const content = requestBody?.content
+
+    if (!content) {
+      return undefined
+    }
+
+    if (content["application/json"]) {
+      return "application/json"
+    }
+
+    return Object.keys(content)[0]
+  }
+
   /**
    * Execute an API call based on the tool ID and parameters
    *
@@ -610,7 +663,8 @@ export class ApiClient {
     } else {
       // For POST-like methods, parameters go in the request body
       config.data = params
-      config.headers["Content-Type"] = "application/json"
+      config.headers["Content-Type"] =
+        this.getRequestContentType(method, path) || "application/json"
     }
 
     try {

@@ -1108,11 +1108,7 @@ describe("Issue #50: Header Parameter Support", () => {
     const mockAuthProvider = new StaticAuthProvider({
       Authorization: "Bearer real-auth-token",
     })
-    const mockApiClient = new ApiClient(
-      "https://api.example.com",
-      mockAuthProvider,
-      mockSpecLoader,
-    )
+    const mockApiClient = new ApiClient("https://api.example.com", mockAuthProvider, mockSpecLoader)
 
     const testSpec = {
       openapi: "3.0.0",
@@ -1588,6 +1584,56 @@ describe("Issue #81: Content-Type header support", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           "Content-Type": "application/json",
+        }),
+      }),
+    )
+  })
+
+  it("should use spec-defined Content-Type in makeDirectHttpRequest for POST via INVOKE-API-ENDPOINT", async () => {
+    const mockSpecLoader = new OpenAPISpecLoader()
+    const mockApiClient = new ApiClient(
+      "https://api.example.com",
+      new StaticAuthProvider(),
+      mockSpecLoader,
+    )
+
+    const openApiSpec = {
+      openapi: "3.0.0",
+      info: { title: "Test API", version: "1.0.0" },
+      paths: {
+        "/users": {
+          post: {
+            summary: "Create user",
+            requestBody: {
+              content: {
+                "application/xml": {
+                  schema: {
+                    type: "string",
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    }
+
+    mockApiClient.setOpenApiSpec(openApiSpec as any)
+    const mockAxios = {
+      request: vi.fn().mockResolvedValue({ data: { id: 1 } }),
+    }
+    ;(mockApiClient as any).axiosInstance = mockAxios
+
+    await mockApiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+      endpoint: "/users",
+      method: "POST",
+      params: { body: "<user><name>John</name></user>" },
+    })
+
+    expect(mockAxios.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "Content-Type": "application/xml",
         }),
       }),
     )
