@@ -520,6 +520,29 @@ describe("loadConfig", () => {
     expect(config.rejectUnauthorized).toBe(false)
   })
 
+  it("should parse rejectUnauthorized from CLI string values", async () => {
+    vi.doMock("yargs", () => ({
+      default: vi.fn().mockReturnValue({
+        option: vi.fn().mockReturnThis(),
+        help: vi.fn().mockReturnThis(),
+        parseSync: vi.fn().mockReturnValue({
+          "api-base-url": "https://api.example.com",
+          "openapi-spec": "./spec.json",
+          "reject-unauthorized": "false",
+        }),
+      }),
+    }))
+
+    vi.doMock("yargs/helpers", () => ({
+      hideBin: vi.fn((arr) => arr),
+    }))
+
+    const { loadConfig } = await import("../src/config")
+
+    const config = loadConfig()
+    expect(config.rejectUnauthorized).toBe(false)
+  })
+
   it("should load mTLS options from environment variables", async () => {
     vi.doMock("yargs", () => ({
       default: vi.fn().mockReturnValue({

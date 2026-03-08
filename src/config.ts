@@ -157,7 +157,7 @@ export function loadConfig(): OpenAPIMCPServerConfig {
       description: "Passphrase for encrypted client private key",
     })
     .option("reject-unauthorized", {
-      type: "boolean",
+      type: "string",
       description: "Whether to reject untrusted server certificates",
     })
     .option("name", {
