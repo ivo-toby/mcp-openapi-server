@@ -16,6 +16,11 @@ export interface OpenAPIMCPServerConfig {
   headers?: Record<string, string>
   /** AuthProvider for dynamic authentication (takes precedence over headers) */
   authProvider?: AuthProvider
+  clientCertPath?: string
+  clientKeyPath?: string
+  caCertPath?: string
+  clientKeyPassphrase?: string
+  rejectUnauthorized?: boolean
   transportType: "stdio" | "http"
   httpPort?: number
   httpHost?: string
@@ -64,6 +69,30 @@ export function parseHeaders(headerStr?: string): Record<string, string> {
   return headers
 }
 
+function parseOptionalBoolean(value: unknown, optionName: string): boolean | undefined {
+  if (value === undefined || value === null || value === "") {
+    return undefined
+  }
+
+  if (typeof value === "boolean") {
+    return value
+  }
+
+  if (typeof value !== "string") {
+    throw new Error(`${optionName} must be a boolean value`)
+  }
+
+  const normalized = value.trim().toLowerCase()
+  if (["true", "1", "yes", "on"].includes(normalized)) {
+    return true
+  }
+  if (["false", "0", "no", "off"].includes(normalized)) {
+    return false
+  }
+
+  throw new Error(`${optionName} must be one of: true, false, 1, 0, yes, no, on, off`)
+}
+
 /**
  * Load configuration from command line arguments and environment variables
  */
@@ -110,6 +139,26 @@ export function loadConfig(): OpenAPIMCPServerConfig {
       alias: "H",
       type: "string",
       description: "API headers in format 'key1:value1,key2:value2'",
+    })
+    .option("client-cert", {
+      type: "string",
+      description: "Path to client certificate PEM file for mutual TLS",
+    })
+    .option("client-key", {
+      type: "string",
+      description: "Path to client private key PEM file for mutual TLS",
+    })
+    .option("ca-cert", {
+      type: "string",
+      description: "Path to custom CA certificate PEM file",
+    })
+    .option("client-key-passphrase", {
+      type: "string",
+      description: "Passphrase for encrypted client private key",
+    })
+    .option("reject-unauthorized", {
+      type: "string",
+      description: "Whether to reject untrusted server certificates",
     })
     .option("name", {
       alias: "n",
@@ -239,9 +288,7 @@ export function loadConfig(): OpenAPIMCPServerConfig {
     if (normalized === "all" || normalized === "dynamic" || normalized === "explicit") {
       toolsMode = normalized
     } else {
-      throw new Error(
-        "Invalid tools mode. Expected one of: all, dynamic, explicit",
-      )
+      throw new Error("Invalid tools mode. Expected one of: all, dynamic, explicit")
     }
   }
 
@@ -250,6 +297,10 @@ export function loadConfig(): OpenAPIMCPServerConfig {
   }
 
   const headers = parseHeaders(argv.headers || process.env.API_HEADERS)
+  const rejectUnauthorizedInput = parseOptionalBoolean(
+    argv["reject-unauthorized"] ?? process.env.REJECT_UNAUTHORIZED,
+    "--reject-unauthorized/REJECT_UNAUTHORIZED",
+  )
 
   return {
     name: argv.name || process.env.SERVER_NAME || "mcp-openapi-server",
@@ -259,6 +310,12 @@ export function loadConfig(): OpenAPIMCPServerConfig {
     specInputMethod,
     inlineSpecContent,
     headers,
+    clientCertPath: (argv["client-cert"] as string | undefined) || process.env.CLIENT_CERT_PATH,
+    clientKeyPath: (argv["client-key"] as string | undefined) || process.env.CLIENT_KEY_PATH,
+    caCertPath: (argv["ca-cert"] as string | undefined) || process.env.CA_CERT_PATH,
+    clientKeyPassphrase:
+      (argv["client-key-passphrase"] as string | undefined) || process.env.CLIENT_KEY_PASSPHRASE,
+    rejectUnauthorized: rejectUnauthorizedInput ?? true,
     transportType,
     httpPort,
     httpHost,
@@ -272,6 +329,7 @@ export function loadConfig(): OpenAPIMCPServerConfig {
     promptsPath: (argv.prompts as string | undefined) || process.env.PROMPTS_PATH,
     promptsInline: (argv["prompts-inline"] as string | undefined) || process.env.PROMPTS_INLINE,
     resourcesPath: (argv.resources as string | undefined) || process.env.RESOURCES_PATH,
-    resourcesInline: (argv["resources-inline"] as string | undefined) || process.env.RESOURCES_INLINE,
+    resourcesInline:
+      (argv["resources-inline"] as string | undefined) || process.env.RESOURCES_INLINE,
   }
 }
