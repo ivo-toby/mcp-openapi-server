@@ -596,5 +596,31 @@ describe("OpenAPIServer", () => {
         "TLS options require apiBaseUrl to use https://",
       )
     })
+
+    it("should allow uppercase HTTPS apiBaseUrl when TLS options are set", () => {
+      const tlsConfig: OpenAPIMCPServerConfig = {
+        ...config,
+        apiBaseUrl: "  HTTPS://localhost  ",
+        rejectUnauthorized: false,
+      }
+
+      new OpenAPIServer(tlsConfig)
+
+      expect(https.Agent).toHaveBeenCalledWith({
+        rejectUnauthorized: false,
+      })
+    })
+
+    it("should reject invalid apiBaseUrl when TLS options are set", () => {
+      const invalidTlsConfig: OpenAPIMCPServerConfig = {
+        ...config,
+        apiBaseUrl: "not-a-url",
+        rejectUnauthorized: false,
+      }
+
+      expect(() => new OpenAPIServer(invalidTlsConfig)).toThrow(
+        "TLS options require apiBaseUrl to be a valid https:// URL",
+      )
+    })
   })
 })

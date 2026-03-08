@@ -92,7 +92,14 @@ export class OpenAPIServer {
       return undefined
     }
 
-    if (!this.config.apiBaseUrl.startsWith("https://")) {
+    let apiUrl: URL
+    try {
+      apiUrl = new URL(this.config.apiBaseUrl.trim())
+    } catch {
+      throw new Error("TLS options require apiBaseUrl to be a valid https:// URL")
+    }
+
+    if (apiUrl.protocol !== "https:") {
       throw new Error("TLS options require apiBaseUrl to use https://")
     }
 
