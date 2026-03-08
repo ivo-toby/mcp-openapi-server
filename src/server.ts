@@ -80,13 +80,13 @@ export class OpenAPIServer {
       throw new Error("clientCertPath and clientKeyPath must be provided together")
     }
 
+    if (this.config.clientKeyPassphrase && !hasClientKey) {
+      throw new Error("clientKeyPassphrase requires clientKeyPath and clientCertPath")
+    }
+
     const rejectUnauthorized = this.config.rejectUnauthorized ?? true
     const shouldConfigureHttpsAgent =
-      hasClientCert ||
-      hasClientKey ||
-      !!this.config.caCertPath ||
-      !!this.config.clientKeyPassphrase ||
-      rejectUnauthorized === false
+      hasClientCert || hasClientKey || !!this.config.caCertPath || rejectUnauthorized === false
 
     if (!shouldConfigureHttpsAgent) {
       return undefined

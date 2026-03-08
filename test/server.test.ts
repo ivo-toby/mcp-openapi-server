@@ -586,6 +586,17 @@ describe("OpenAPIServer", () => {
       )
     })
 
+    it("should reject clientKeyPassphrase without mTLS key material", () => {
+      const invalidTlsConfig: OpenAPIMCPServerConfig = {
+        ...config,
+        clientKeyPassphrase: "top-secret",
+      }
+
+      expect(() => new OpenAPIServer(invalidTlsConfig)).toThrow(
+        "clientKeyPassphrase requires clientKeyPath and clientCertPath",
+      )
+    })
+
     it("should reject TLS options for non-https apiBaseUrl", () => {
       const invalidTlsConfig: OpenAPIMCPServerConfig = {
         ...config,
