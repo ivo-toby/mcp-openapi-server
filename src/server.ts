@@ -3,6 +3,7 @@ import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
 import { readFileSync } from "node:fs"
 import { Agent as HttpsAgent } from "node:https"
 import {
+  CallToolResult,
   ListToolsRequestSchema,
   CallToolRequestSchema,
   ListPromptsRequestSchema,
@@ -18,6 +19,7 @@ import { StaticAuthProvider } from "./auth-provider.js"
 import { PromptsManager } from "./prompts-manager"
 import { ResourcesManager } from "./resources-manager"
 import { Logger } from "./utils/logger"
+import { ExtraToolDefinition } from "./types/extra-tools"
 
 /**
  * MCP server implementation for OpenAPI specifications
@@ -30,10 +32,13 @@ export class OpenAPIServer {
   private resourcesManager?: ResourcesManager
   private config: OpenAPIMCPServerConfig
   private logger: Logger
+  private extraTools = new Map<string, ExtraToolDefinition>()
+  private extraToolNames = new Map<string, ExtraToolDefinition>()
 
   constructor(config: OpenAPIMCPServerConfig) {
     this.config = config
     this.logger = new Logger(config.verbose)
+    this.registerExtraTools(config.extraTools || [])
 
     // Initialize optional managers
     if (config.prompts?.length) {
@@ -73,6 +78,71 @@ export class OpenAPIServer {
       : new ApiClient(config.apiBaseUrl, authProviderOrHeaders, this.toolsManager.getSpecLoader())
 
     this.initializeHandlers()
+  }
+
+  private registerExtraTools(extraTools: ExtraToolDefinition[]): void {
+    for (const extraTool of extraTools) {
+      if (this.extraTools.has(extraTool.id)) {
+        throw new Error(`Duplicate extra tool id: "${extraTool.id}"`)
+      }
+
+      if (this.extraToolNames.has(extraTool.tool.name)) {
+        throw new Error(`Duplicate extra tool name: "${extraTool.tool.name}"`)
+      }
+
+      this.extraTools.set(extraTool.id, extraTool)
+      this.extraToolNames.set(extraTool.tool.name, extraTool)
+    }
+  }
+
+  private getAllTools(): Tool[] {
+    return [
+      ...this.toolsManager.getAllTools(),
+      ...Array.from(this.extraTools.values(), (tool) => tool.tool),
+    ]
+  }
+
+  private async executeExtraTool(
+    toolIdOrName: string,
+    params: Record<string, unknown>,
+  ): Promise<CallToolResult | undefined> {
+    const extraTool = this.extraTools.get(toolIdOrName) || this.extraToolNames.get(toolIdOrName)
+
+    if (!extraTool) {
+      return undefined
+    }
+
+    this.logger.error(`Executing extra tool: ${extraTool.id} (${extraTool.tool.name})`)
+
+    try {
+      return await extraTool.handler(params)
+    } catch (error) {
+      if (error instanceof Error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${error.message}`,
+            },
+          ],
+          isError: true,
+        }
+      }
+
+      throw error
+    }
+  }
+
+  private validateExtraToolConflicts(toolsWithIds: Array<[string, Tool]>): void {
+    for (const [toolId, tool] of toolsWithIds) {
+      if (this.extraTools.has(toolId)) {
+        throw new Error(`Extra tool id conflicts with generated tool id: "${toolId}"`)
+      }
+
+      if (this.extraToolNames.has(tool.name)) {
+        throw new Error(`Extra tool name conflicts with generated tool name: "${tool.name}"`)
+      }
+    }
   }
 
   private createApiClientOptions(): ApiClientOptions | undefined {
@@ -135,7 +205,7 @@ export class OpenAPIServer {
     // Handle tool listing
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       return {
-        tools: this.toolsManager.getAllTools() as any,
+        tools: this.getAllTools() as any,
       }
     })
 
@@ -152,10 +222,18 @@ export class OpenAPIServer {
         throw new Error("Tool ID or name is required")
       }
 
+      const extraToolResult = await this.executeExtraTool(
+        idOrName,
+        (params || {}) as Record<string, unknown>,
+      )
+      if (extraToolResult) {
+        return extraToolResult
+      }
+
       const toolInfo = this.toolsManager.findTool(idOrName)
       if (!toolInfo) {
         this.logger.error(
-          `Available tools: ${Array.from(this.toolsManager.getAllTools())
+          `Available tools: ${Array.from(this.getAllTools())
             .map((t) => t.name)
             .join(", ")}`,
         )
@@ -224,7 +302,10 @@ export class OpenAPIServer {
 
     // Pass the tools to the API client
     const toolsMap = new Map<string, Tool>()
-    for (const [toolId, tool] of this.toolsManager.getToolsWithIds()) {
+    const toolsWithIds = this.toolsManager.getToolsWithIds()
+    this.validateExtraToolConflicts(toolsWithIds)
+
+    for (const [toolId, tool] of toolsWithIds) {
       toolsMap.set(toolId, tool)
     }
     this.apiClient.setTools(toolsMap)

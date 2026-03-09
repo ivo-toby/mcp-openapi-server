@@ -643,6 +643,56 @@ const config = {
 const server = new OpenAPIServer(config)
 ```
 
+### Adding Extra Custom Tools
+
+You can expose a few hand-written MCP tools alongside the tools generated from your OpenAPI spec:
+
+```typescript
+import { OpenAPIServer, type ExtraToolDefinition } from "@ivotoby/openapi-mcp-server"
+
+const extraTools: ExtraToolDefinition[] = [
+  {
+    id: "add",
+    tool: {
+      name: "add",
+      description: "Add two numbers",
+      inputSchema: {
+        type: "object",
+        properties: {
+          a: { type: "number" },
+          b: { type: "number" },
+        },
+        required: ["a", "b"],
+      },
+    },
+    handler: async ({ a, b }) => {
+      const result = Number(a) + Number(b)
+      return {
+        content: [{ type: "text", text: JSON.stringify({ result }) }],
+        structuredContent: { result },
+      }
+    },
+  },
+]
+
+const server = new OpenAPIServer({
+  name: "my-api-server",
+  version: "1.0.0",
+  apiBaseUrl: "https://api.example.com",
+  openApiSpec: "https://api.example.com/openapi.json",
+  specInputMethod: "url",
+  transportType: "stdio",
+  toolsMode: "all",
+  extraTools,
+})
+```
+
+Notes:
+
+- `extraTools` is library-only in this first version; there is no CLI format for function handlers
+- extra tool IDs and MCP tool names must be unique across both custom and OpenAPI-generated tools
+- extra tool handlers should return a normal MCP `tools/call` result object
+
 #### Dynamic Prompt and Resource Management
 
 You can also add prompts and resources dynamically after server creation:
