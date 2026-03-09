@@ -152,11 +152,11 @@ describe("OpenAPIServer", () => {
         ],
       }
 
+      vi.mocked(mockServer.setRequestHandler).mockClear()
       const serverWithExtraTools = new OpenAPIServer(configWithExtraTools)
       // @ts-expect-error: access private for test
       const serverMock = serverWithExtraTools.server
-      // The shared Server mock records handlers from previous server instances too.
-      const handler = vi.mocked(serverMock.setRequestHandler).mock.calls.at(-2)?.[1] as any
+      const handler = vi.mocked(serverMock.setRequestHandler).mock.calls[0][1] as any
 
       // @ts-expect-error: access private for test
       const toolsManager = serverWithExtraTools.toolsManager
@@ -198,10 +198,11 @@ describe("OpenAPIServer", () => {
         ],
       }
 
+      vi.mocked(mockServer.setRequestHandler).mockClear()
       const serverWithExtraTools = new OpenAPIServer(configWithExtraTools)
       // @ts-expect-error: access private for test
       const serverMock = serverWithExtraTools.server
-      const handler = vi.mocked(serverMock.setRequestHandler).mock.calls.at(-1)?.[1] as any
+      const handler = vi.mocked(serverMock.setRequestHandler).mock.calls[1][1] as any
 
       const result = await handler({ params: { id: "add", arguments: { a: 1, b: 2 } } }, {})
 
@@ -229,10 +230,11 @@ describe("OpenAPIServer", () => {
         ],
       }
 
+      vi.mocked(mockServer.setRequestHandler).mockClear()
       const serverWithExtraTools = new OpenAPIServer(configWithExtraTools)
       // @ts-expect-error: access private for test
       const serverMock = serverWithExtraTools.server
-      const handler = vi.mocked(serverMock.setRequestHandler).mock.calls.at(-1)?.[1] as any
+      const handler = vi.mocked(serverMock.setRequestHandler).mock.calls[1][1] as any
 
       const result = await handler({ params: { id: "add", arguments: {} } }, {})
 
@@ -283,6 +285,28 @@ describe("OpenAPIServer", () => {
 
       expect(() => new OpenAPIServer(configWithDuplicateNames)).toThrow(
         'Duplicate extra tool name: "add"',
+      )
+    })
+
+    it("should reject extra tool id and name cross-collisions", () => {
+      const configWithCrossCollision: OpenAPIMCPServerConfig = {
+        ...config,
+        extraTools: [
+          {
+            id: "add",
+            tool: { name: "sum", description: "Add", inputSchema: { type: "object" } },
+            handler: vi.fn(),
+          },
+          {
+            id: "sum",
+            tool: { name: "other", description: "Sum", inputSchema: { type: "object" } },
+            handler: vi.fn(),
+          },
+        ],
+      }
+
+      expect(() => new OpenAPIServer(configWithCrossCollision)).toThrow(
+        'Extra tool id conflicts with existing extra tool name: "sum"',
       )
     })
 
@@ -510,6 +534,111 @@ describe("OpenAPIServer", () => {
             id: "add",
             tool: {
               name: "list-users",
+              description: "Custom users",
+              inputSchema: { type: "object" },
+            },
+            handler: vi.fn(),
+          },
+        ],
+      }
+
+      const serverWithExtraTools = new OpenAPIServer(configWithExtraTools)
+      // @ts-expect-error: access private for test
+      const toolsManager = serverWithExtraTools.toolsManager
+      vi.mocked(toolsManager.initialize).mockResolvedValue(undefined)
+      vi.mocked(toolsManager.getToolsWithIds).mockReturnValue([
+        ["GET::users", { name: "list-users", inputSchema: { type: "object" } }],
+      ] as any)
+
+      await expect(serverWithExtraTools.start(transport)).rejects.toThrow(
+        'Extra tool name conflicts with generated tool name: "list-users"',
+      )
+    })
+
+    it("should reject extra tool ids that conflict with generated tool names on start", async () => {
+      const transport = {
+        start: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as ServerTransport
+
+      const configWithExtraTools: OpenAPIMCPServerConfig = {
+        ...config,
+        extraTools: [
+          {
+            id: "list-users",
+            tool: {
+              name: "custom-users",
+              description: "Custom users",
+              inputSchema: { type: "object" },
+            },
+            handler: vi.fn(),
+          },
+        ],
+      }
+
+      const serverWithExtraTools = new OpenAPIServer(configWithExtraTools)
+      // @ts-expect-error: access private for test
+      const toolsManager = serverWithExtraTools.toolsManager
+      vi.mocked(toolsManager.initialize).mockResolvedValue(undefined)
+      vi.mocked(toolsManager.getToolsWithIds).mockReturnValue([
+        ["GET::users", { name: "list-users", inputSchema: { type: "object" } }],
+      ] as any)
+
+      await expect(serverWithExtraTools.start(transport)).rejects.toThrow(
+        'Extra tool id conflicts with generated tool name: "list-users"',
+      )
+    })
+
+    it("should reject extra tool names that conflict with generated tool ids on start", async () => {
+      const transport = {
+        start: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as ServerTransport
+
+      const configWithExtraTools: OpenAPIMCPServerConfig = {
+        ...config,
+        extraTools: [
+          {
+            id: "custom-users",
+            tool: {
+              name: "GET::users",
+              description: "Custom users",
+              inputSchema: { type: "object" },
+            },
+            handler: vi.fn(),
+          },
+        ],
+      }
+
+      const serverWithExtraTools = new OpenAPIServer(configWithExtraTools)
+      // @ts-expect-error: access private for test
+      const toolsManager = serverWithExtraTools.toolsManager
+      vi.mocked(toolsManager.initialize).mockResolvedValue(undefined)
+      vi.mocked(toolsManager.getToolsWithIds).mockReturnValue([
+        ["GET::users", { name: "list-users", inputSchema: { type: "object" } }],
+      ] as any)
+
+      await expect(serverWithExtraTools.start(transport)).rejects.toThrow(
+        'Extra tool name conflicts with generated tool id: "GET::users"',
+      )
+    })
+
+    it("should reject case-insensitive conflicts with generated tools on start", async () => {
+      const transport = {
+        start: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as ServerTransport
+
+      const configWithExtraTools: OpenAPIMCPServerConfig = {
+        ...config,
+        extraTools: [
+          {
+            id: "add",
+            tool: {
+              name: "List-Users",
               description: "Custom users",
               inputSchema: { type: "object" },
             },

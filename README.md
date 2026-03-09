@@ -665,8 +665,10 @@ const extraTools: ExtraToolDefinition[] = [
         required: ["a", "b"],
       },
     },
-    handler: async ({ a, b }) => {
-      const result = Number(a) + Number(b)
+    handler: async (args) => {
+      const a = Number(args.a)
+      const b = Number(args.b)
+      const result = a + b
       return {
         content: [{ type: "text", text: JSON.stringify({ result }) }],
         structuredContent: { result },

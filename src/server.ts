@@ -33,7 +33,8 @@ export class OpenAPIServer {
   private config: OpenAPIMCPServerConfig
   private logger: Logger
   private extraTools = new Map<string, ExtraToolDefinition>()
-  private extraToolNames = new Map<string, ExtraToolDefinition>()
+  private extraToolIdsLower = new Map<string, ExtraToolDefinition>()
+  private extraToolNamesLower = new Map<string, ExtraToolDefinition>()
 
   constructor(config: OpenAPIMCPServerConfig) {
     this.config = config
@@ -82,16 +83,30 @@ export class OpenAPIServer {
 
   private registerExtraTools(extraTools: ExtraToolDefinition[]): void {
     for (const extraTool of extraTools) {
-      if (this.extraTools.has(extraTool.id)) {
+      const normalizedId = extraTool.id.toLowerCase()
+      const normalizedName = extraTool.tool.name.toLowerCase()
+
+      if (this.extraToolIdsLower.has(normalizedId)) {
         throw new Error(`Duplicate extra tool id: "${extraTool.id}"`)
       }
 
-      if (this.extraToolNames.has(extraTool.tool.name)) {
+      if (this.extraToolNamesLower.has(normalizedName)) {
         throw new Error(`Duplicate extra tool name: "${extraTool.tool.name}"`)
       }
 
+      if (this.extraToolNamesLower.has(normalizedId)) {
+        throw new Error(`Extra tool id conflicts with existing extra tool name: "${extraTool.id}"`)
+      }
+
+      if (this.extraToolIdsLower.has(normalizedName)) {
+        throw new Error(
+          `Extra tool name conflicts with existing extra tool id: "${extraTool.tool.name}"`,
+        )
+      }
+
       this.extraTools.set(extraTool.id, extraTool)
-      this.extraToolNames.set(extraTool.tool.name, extraTool)
+      this.extraToolIdsLower.set(normalizedId, extraTool)
+      this.extraToolNamesLower.set(normalizedName, extraTool)
     }
   }
 
@@ -106,7 +121,10 @@ export class OpenAPIServer {
     toolIdOrName: string,
     params: Record<string, unknown>,
   ): Promise<CallToolResult | undefined> {
-    const extraTool = this.extraTools.get(toolIdOrName) || this.extraToolNames.get(toolIdOrName)
+    const normalizedIdOrName = toolIdOrName.toLowerCase()
+    const extraTool =
+      this.extraToolIdsLower.get(normalizedIdOrName) ||
+      this.extraToolNamesLower.get(normalizedIdOrName)
 
     if (!extraTool) {
       return undefined
@@ -135,12 +153,23 @@ export class OpenAPIServer {
 
   private validateExtraToolConflicts(toolsWithIds: Array<[string, Tool]>): void {
     for (const [toolId, tool] of toolsWithIds) {
-      if (this.extraTools.has(toolId)) {
+      const normalizedId = toolId.toLowerCase()
+      const normalizedName = tool.name.toLowerCase()
+
+      if (this.extraToolIdsLower.has(normalizedId)) {
         throw new Error(`Extra tool id conflicts with generated tool id: "${toolId}"`)
       }
 
-      if (this.extraToolNames.has(tool.name)) {
+      if (this.extraToolNamesLower.has(normalizedName)) {
         throw new Error(`Extra tool name conflicts with generated tool name: "${tool.name}"`)
+      }
+
+      if (this.extraToolIdsLower.has(normalizedName)) {
+        throw new Error(`Extra tool id conflicts with generated tool name: "${tool.name}"`)
+      }
+
+      if (this.extraToolNamesLower.has(normalizedId)) {
+        throw new Error(`Extra tool name conflicts with generated tool id: "${toolId}"`)
       }
     }
   }
