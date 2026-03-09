@@ -132,6 +132,7 @@ The server can be configured through environment variables or command line argum
 - `ENDPOINT_PATH` - Endpoint path for HTTP transport (default: "/mcp")
 - `TOOLS_MODE` - Tools loading mode: "all" (load all endpoint-based tools), "dynamic" (load only meta-tools), or "explicit" (load only tools specified in includeTools) (default: "all")
 - `DISABLE_ABBREVIATION` - Disable name optimization (this could throw errors when name is > 64 chars)
+- `VERBOSE` - Enable operational logging (`true` by default; set to `false` to suppress non-essential logs)
 - `PROMPTS_PATH` - Path or URL to prompts JSON/YAML file
 - `PROMPTS_INLINE` - Provide prompts directly as JSON string
 - `RESOURCES_PATH` - Path or URL to resources JSON/YAML file
@@ -152,7 +153,8 @@ npx @ivotoby/openapi-mcp-server \
   --port 3000 \
   --host 127.0.0.1 \
   --path /mcp \
-  --disable-abbreviation true
+  --disable-abbreviation true \
+  --verbose false
 ```
 
 ## Mutual TLS (mTLS)
@@ -190,6 +192,8 @@ npx @ivotoby/openapi-mcp-server \
 - `--client-key-passphrase` / `CLIENT_KEY_PASSPHRASE`: passphrase for encrypted private keys
 - `--ca-cert` / `CA_CERT_PATH`: custom CA bundle for private/internal certificate authorities
 - `--reject-unauthorized` / `REJECT_UNAUTHORIZED`: set to `false` only when you intentionally want to allow self-signed or otherwise untrusted server certificates
+
+Set `--verbose false` or `VERBOSE=false` if you want the server to stay quiet in scripts or embedded environments.
 
 ## OpenAPI Specification Loading
 

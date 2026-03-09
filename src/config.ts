@@ -48,6 +48,7 @@ export interface OpenAPIMCPServerConfig {
   resourcesPath?: string
   /** Inline resources JSON content */
   resourcesInline?: string
+  verbose?: boolean
 }
 
 /**
@@ -215,6 +216,10 @@ export function loadConfig(): OpenAPIMCPServerConfig {
       type: "string",
       description: "Provide resources directly as JSON string",
     })
+    .option("verbose", {
+      type: "string",
+      description: "Enable verbose logging",
+    })
     .help()
     .parseSync()
 
@@ -301,6 +306,8 @@ export function loadConfig(): OpenAPIMCPServerConfig {
     argv["reject-unauthorized"] ?? process.env.REJECT_UNAUTHORIZED,
     "--reject-unauthorized/REJECT_UNAUTHORIZED",
   )
+  const verbose =
+    parseOptionalBoolean(argv.verbose ?? process.env.VERBOSE, "--verbose/VERBOSE") ?? true
 
   return {
     name: argv.name || process.env.SERVER_NAME || "mcp-openapi-server",
@@ -331,5 +338,6 @@ export function loadConfig(): OpenAPIMCPServerConfig {
     resourcesPath: (argv.resources as string | undefined) || process.env.RESOURCES_PATH,
     resourcesInline:
       (argv["resources-inline"] as string | undefined) || process.env.RESOURCES_INLINE,
+    verbose,
   }
 }

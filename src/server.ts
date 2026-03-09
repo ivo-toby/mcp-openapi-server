@@ -17,6 +17,7 @@ import { ApiClient, type ApiClientOptions } from "./api-client"
 import { StaticAuthProvider } from "./auth-provider.js"
 import { PromptsManager } from "./prompts-manager"
 import { ResourcesManager } from "./resources-manager"
+import { Logger } from "./utils/logger"
 
 /**
  * MCP server implementation for OpenAPI specifications
@@ -28,9 +29,11 @@ export class OpenAPIServer {
   private promptsManager?: PromptsManager
   private resourcesManager?: ResourcesManager
   private config: OpenAPIMCPServerConfig
+  private logger: Logger
 
   constructor(config: OpenAPIMCPServerConfig) {
     this.config = config
+    this.logger = new Logger(config.verbose)
 
     // Initialize optional managers
     if (config.prompts?.length) {
@@ -140,8 +143,8 @@ export class OpenAPIServer {
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { id, name, arguments: params } = request.params
 
-      console.error("Received request:", request.params)
-      console.error("Using parameters from arguments:", params)
+      this.logger.error("Received request:", request.params)
+      this.logger.error("Using parameters from arguments:", params)
 
       // Find tool by ID or name
       const idOrName = typeof id === "string" ? id : typeof name === "string" ? name : ""
@@ -151,7 +154,7 @@ export class OpenAPIServer {
 
       const toolInfo = this.toolsManager.findTool(idOrName)
       if (!toolInfo) {
-        console.error(
+        this.logger.error(
           `Available tools: ${Array.from(this.toolsManager.getAllTools())
             .map((t) => t.name)
             .join(", ")}`,
@@ -160,7 +163,7 @@ export class OpenAPIServer {
       }
 
       const { toolId, tool } = toolInfo
-      console.error(`Executing tool: ${toolId} (${tool.name})`)
+      this.logger.error(`Executing tool: ${toolId} (${tool.name})`)
 
       try {
         // Execute the API call
