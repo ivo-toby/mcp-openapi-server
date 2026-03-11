@@ -202,6 +202,8 @@ describe("OpenAPIServer", () => {
       const serverWithExtraTools = new OpenAPIServer(configWithExtraTools)
       // @ts-expect-error: access private for test
       const serverMock = serverWithExtraTools.server
+      // @ts-expect-error: access private for test
+      const extraApiClient = serverWithExtraTools.apiClient
       const handler = vi.mocked(serverMock.setRequestHandler).mock.calls[1][1] as any
 
       const result = await handler({ params: { id: "add", arguments: { a: 1, b: 2 } } }, {})
@@ -211,7 +213,7 @@ describe("OpenAPIServer", () => {
         content: [{ type: "text", text: JSON.stringify({ result: 3 }) }],
         structuredContent: { result: 3 },
       })
-      expect(mockApiClient.executeApiCall).not.toHaveBeenCalled()
+      expect(extraApiClient.executeApiCall).not.toHaveBeenCalled()
     })
 
     it("should convert extra tool errors into MCP error results", async () => {

@@ -648,9 +648,9 @@ const server = new OpenAPIServer(config)
 You can expose a few hand-written MCP tools alongside the tools generated from your OpenAPI spec:
 
 ```typescript
-import { OpenAPIServer, type ExtraToolDefinition } from "@ivotoby/openapi-mcp-server"
+import { OpenAPIServer } from "@ivotoby/openapi-mcp-server"
 
-const extraTools: ExtraToolDefinition[] = [
+const extraTools = [
   {
     id: "add",
     tool: {
