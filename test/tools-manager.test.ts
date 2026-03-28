@@ -284,7 +284,7 @@ describe("ToolsManager", () => {
     })
 
     describe("Filter Order of Application", () => {
-      it("should apply filters in the correct order: includeTools -> includeOperations -> includeResources -> includeTags", async () => {
+      it("should apply filters in the correct order: includeTools -> includeOperations -> includeResources -> excludeTags -> includeTags", async () => {
         const mockTools = new Map([
           [
             "GET::users",
@@ -293,6 +293,15 @@ describe("ToolsManager", () => {
               httpMethod: "GET",
               resourceName: "users",
               tags: ["public", "read"],
+            } as ExtendedTool,
+          ],
+          [
+            "GET::adminUsers",
+            {
+              name: "createAdminUsers",
+              httpMethod: "GET",
+              resourceName: "users",
+              tags: ["admin", "read"],
             } as ExtendedTool,
           ],
           [
@@ -331,13 +340,15 @@ describe("ToolsManager", () => {
         // Apply all filters - should work as AND operation
         ;(toolsManager as any).config.includeOperations = ["get", "post"] // Excludes DELETE
         ;(toolsManager as any).config.includeResources = ["users"] // Excludes orders
+        ;(toolsManager as any).config.excludeTags = ["write"] // Exludes write tools
         ;(toolsManager as any).config.includeTags = ["public"] // Excludes admin-only tools
 
         await toolsManager.initialize()
 
         // Only GET::users should match all criteria:
-        // - Operation: GET (✓) or POST (✗ - has admin tag, not public)
+        // - Operation: GET (✓) or POST (✗ - has admin tag, not public, not write)
         // - Resource: users (✓)
+        // - ExcludeTags: write (✓)
         // - Tags: public (✓)
         const resultToolIds = Array.from((toolsManager as any).tools.keys())
         expect(resultToolIds).toEqual(["GET::users"])
@@ -373,6 +384,7 @@ describe("ToolsManager", () => {
         ;(toolsManager as any).config.includeTools = ["DELETE::orders-id"] // Explicitly include this tool
         ;(toolsManager as any).config.includeOperations = ["get"] // Would normally exclude DELETE
         ;(toolsManager as any).config.includeResources = ["users"] // Would normally exclude orders
+        ;(toolsManager as any).config.excludeTags = ["admin"] // Would normally exclude admin
         ;(toolsManager as any).config.includeTags = ["public"] // Would normally exclude admin
 
         await toolsManager.initialize()
@@ -412,6 +424,7 @@ describe("ToolsManager", () => {
         ;(toolsManager as any).config.includeTools = []
         ;(toolsManager as any).config.includeOperations = []
         ;(toolsManager as any).config.includeResources = []
+        ;(toolsManager as any).config.excludeTags = []
         ;(toolsManager as any).config.includeTags = []
 
         await toolsManager.initialize()

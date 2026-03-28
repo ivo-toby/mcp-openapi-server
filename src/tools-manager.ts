@@ -151,6 +151,7 @@ export class ToolsManager {
     const includeResourcesLower =
       this.config.includeResources?.map((res) => res.toLowerCase()) || []
     const includeTagsLower = this.config.includeTags?.map((tag) => tag.toLowerCase()) || []
+    const excludeTagsLower = this.config.excludeTags?.map((tag) => tag.toLowerCase()) || []
 
     for (const [toolId, tool] of rawTools.entries()) {
       const extendedTool = tool as ExtendedTool
@@ -188,6 +189,17 @@ export class ToolsManager {
             ? extendedTool.resourceName.toLowerCase()
             : undefined
         if (!resourceName || !includeResourcesLower.includes(resourceName)) {
+          continue
+        }
+      }
+
+      // noIncludeTags filter
+      if (excludeTagsLower.length > 0) {
+        const toolTags = Array.isArray(extendedTool.tags) ? extendedTool.tags : []
+        const hasMatchingTag = toolTags.some(
+          (tag) => typeof tag === "string" && excludeTagsLower.includes(tag.toLowerCase()),
+        )
+        if (hasMatchingTag) {
           continue
         }
       }
