@@ -200,9 +200,13 @@ export class ApiClient {
       // Get the tool definition, if available
       const toolDef = this.getToolDefinition(toolId)
 
+      const originalPath =
+        ((toolDef as any)?.originalPath as string | undefined) ||
+        ((toolDef as any)?.["x-original-path"] as string | undefined)
+
       // Interpolate path parameters into the URL and remove them from params
       const paramsCopy: Record<string, any> = { ...params }
-      let resolvedPath = path
+      let resolvedPath = originalPath || path
 
       // Helper function to escape regex special characters
       const escapeRegExp = (str: string): string => {
