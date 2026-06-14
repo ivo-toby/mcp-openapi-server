@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "epic": {
+    "id": "EPIC-example-feature",
+    "name": "Example Feature",
+    "targetBranch": "main",
+    "baseBranch": "epic/example-feature"
+  },
+  "configuration": {
+    "storageMode": "local-markdown",
+    "profile": "standard",
+    "reviewMode": "risk_based",
+    "monitoringMode": "adaptive",
+    "models": {
+      "planning": "configured-model-key",
+      "implementationSimple": "configured-model-key",
+      "implementationComplex": "configured-model-key",
+      "review": "configured-model-key",
+      "feedbackFix": "configured-model-key",
+      "epicValidation": "configured-model-key",
+      "prDescription": "configured-model-key"
+    },
+    "reviewPolicy": {
+      "p1BlocksMerge": true,
+      "p2BlocksMerge": true,
+      "p3CreatesFollowUp": true
+    },
+    "branching": {
+      "epicBranchConvention": "epic/[epic-slug]",
+      "taskBranchConvention": "task/[task-id]-[task-slug]",
+      "taskPrTarget": "epic branch",
+      "finalPrTarget": "target branch",
+      "epicBranchRequiredBeforeWorkerDispatch": true,
+      "activationArtifactsSyncedBeforeTaskWorktrees": true,
+      "isolatedWorktreePerRepositoryTask": true,
+      "workersMaySwitchControllerCheckout": false
+    }
+  },
+  "waves": [
+    {
+      "id": "WAVE-001",
+      "status": "planned",
+      "strategy": {
+        "profile": "standard",
+        "executionMode": "parallel",
+        "reviewMode": "risk_based",
+        "monitoringMode": "adaptive",
+        "recommendedBy": "wdd-plan-epic",
+        "confirmedBy": null,
+        "requiresUserConfirmation": true,
+        "confidence": "medium",
+        "rationale": [
+          "Tasks appear independently executable.",
+          "Parallel execution may reduce wall-clock time."
+        ],
+        "bundleGroups": [],
+        "overrideHistory": []
+      },
+      "tasks": [
+        {
+          "id": "TASK-001-example-task",
+          "ticket": "TICKET-001-example-ticket",
+          "path": "TICKET-001-example-ticket/todo/TASK-001-example-task.md",
+          "status": "todo",
+          "dependsOn": [],
+          "conflictDomains": ["path/or/domain/**"],
+          "assignedModel": "configured-model-key",
+          "reviewModel": "configured-model-key",
+          "workerThreadId": null,
+          "reviewThreadId": null,
+          "branch": "task/TASK-001-example-task",
+          "workerWorktree": null,
+          "worktreeStatus": "unassigned",
+          "pr": null,
+          "latestCommit": null,
+          "branchFreshness": "unknown",
+          "blockingFeedback": [],
+          "verification": null,
+          "currentGate": "not_started"
+        }
+      ]
+    }
+  ],
+  "sharedContext": {
+    "index": "shared-context/index.md",
+    "pendingReconciliation": []
+  },
+  "monitoring": {
+    "mode": "manual",
+    "cadence": "adaptive",
+    "status": "inactive",
+    "lastCheckedAt": null,
+    "nextCheckDueAt": null,
+    "schedulerRef": null,
+    "fallbackPrompt": "Run subagent-pr-orchestration for EPIC-example-feature WAVE-001. Read orchestration.json and controller-state.md, verify the epic branch contains current activation artifact state before assigned worker worktrees branch from it, inspect every active worker and reviewer reference, update task gates, and stop when all active tasks are merged, blocked, cancelled, or ready for wdd-reconcile-wave."
+  }
+}
