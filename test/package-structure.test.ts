@@ -58,6 +58,10 @@ describe("Package Structure (Issue #49)", () => {
       expect(packageJson.name).toMatch(/^@[\w-]+\/[\w-]+$/)
     })
 
+    it("should advertise TypeScript declarations for library consumers", () => {
+      expect(packageJson.types).toBe("./dist/index.d.ts")
+    })
+
     it("should have all required fields for npm publishing", () => {
       expect(packageJson.name).toBeDefined()
       expect(packageJson.version).toBeDefined()
