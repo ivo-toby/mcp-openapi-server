@@ -120,6 +120,49 @@ describe("ApiClient Dynamic Meta-Tools", () => {
       expect(result.endpoints).toHaveLength(2)
       expect(result.note).toContain("Limited endpoint information")
     })
+
+    it("should omit endpoints with excluded OpenAPI tags", async () => {
+      const client = new ApiClient(
+        "https://api.example.com",
+        new StaticAuthProvider(),
+        mockSpecLoader,
+        {
+          excludeTags: ["admin"],
+        },
+      )
+      ;(client as any).axiosInstance = mockAxios
+      client.setOpenApiSpec({
+        openapi: "3.0.0",
+        info: { title: "Test API", version: "1.0.0" },
+        paths: {
+          "/users": {
+            get: {
+              summary: "Get users",
+              tags: ["public"],
+              responses: {},
+            },
+          },
+          "/admin/users": {
+            get: {
+              summary: "Get admin users",
+              tags: ["Admin"],
+              responses: {},
+            },
+          },
+          "/status": {
+            get: {
+              summary: "Get status",
+              responses: {},
+            },
+          },
+        },
+      } as any)
+
+      const result = await client.executeApiCall("LIST-API-ENDPOINTS", {})
+
+      expect(result.endpoints.map((endpoint: any) => endpoint.path)).toEqual(["/users", "/status"])
+      expect(result.total).toBe(2)
+    })
   })
 
   describe("GET-API-ENDPOINT-SCHEMA", () => {
@@ -156,6 +199,41 @@ describe("ApiClient Dynamic Meta-Tools", () => {
       expect(result.operations[0].method).toBe("GET")
       expect(result.operations[0].summary).toBe("Get users")
     })
+
+    it("should omit excluded tagged operations from endpoint schemas", async () => {
+      const client = new ApiClient(
+        "https://api.example.com",
+        new StaticAuthProvider(),
+        mockSpecLoader,
+        {
+          excludeTags: ["internal"],
+        },
+      )
+      client.setOpenApiSpec({
+        openapi: "3.0.0",
+        info: { title: "Test API", version: "1.0.0" },
+        paths: {
+          "/reports": {
+            get: {
+              summary: "Get public reports",
+              tags: ["public"],
+              responses: {},
+            },
+            delete: {
+              summary: "Delete reports",
+              tags: ["internal"],
+              responses: {},
+            },
+          },
+        },
+      } as any)
+
+      const result = await client.executeApiCall("GET-API-ENDPOINT-SCHEMA", {
+        endpoint: "/reports",
+      })
+
+      expect(result.operations.map((operation: any) => operation.method)).toEqual(["GET"])
+    })
   })
 
   describe("INVOKE-API-ENDPOINT", () => {
@@ -187,6 +265,83 @@ describe("ApiClient Dynamic Meta-Tools", () => {
         url: "/users",
         headers: {},
         params: { page: 1 },
+      })
+    })
+
+    it("should reject INVOKE-API-ENDPOINT when the requested operation has an excluded tag", async () => {
+      const client = new ApiClient(
+        "https://api.example.com",
+        new StaticAuthProvider(),
+        mockSpecLoader,
+        {
+          excludeTags: ["admin"],
+        },
+      )
+      ;(client as any).axiosInstance = mockAxios
+      client.setOpenApiSpec({
+        openapi: "3.0.0",
+        info: { title: "Test API", version: "1.0.0" },
+        paths: {
+          "/admin/users": {
+            delete: {
+              summary: "Delete admin users",
+              tags: ["admin"],
+              responses: {},
+            },
+          },
+        },
+      } as any)
+
+      await expect(
+        client.executeApiCall("INVOKE-API-ENDPOINT", {
+          endpoint: "/admin/users",
+          method: "DELETE",
+          params: {},
+        }),
+      ).rejects.toThrow("Endpoint '/admin/users' with method 'DELETE' is excluded by tag filter")
+      expect(mockAxios.request).not.toHaveBeenCalled()
+    })
+
+    it("should choose the first non-excluded operation when invoking without a method", async () => {
+      const client = new ApiClient(
+        "https://api.example.com",
+        new StaticAuthProvider(),
+        mockSpecLoader,
+        {
+          excludeTags: ["internal"],
+        },
+      )
+      ;(client as any).axiosInstance = mockAxios
+      client.setOpenApiSpec({
+        openapi: "3.0.0",
+        info: { title: "Test API", version: "1.0.0" },
+        paths: {
+          "/reports": {
+            get: {
+              summary: "Internal report export",
+              tags: ["internal"],
+              responses: {},
+            },
+            post: {
+              summary: "Create public report",
+              tags: ["public"],
+              responses: {},
+            },
+          },
+        },
+      } as any)
+      mockAxios.request.mockResolvedValue({ data: { ok: true } })
+
+      await client.executeApiCall("INVOKE-API-ENDPOINT", {
+        endpoint: "/reports",
+        params: { name: "Quarterly" },
+      })
+
+      expect(mockAxios.request).toHaveBeenCalledWith({
+        method: "post",
+        url: "/reports",
+        headers: { "Content-Type": "application/json" },
+        data: { name: "Quarterly" },
       })
     })
   })

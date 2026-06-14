@@ -34,6 +34,7 @@ export class ApiClient {
   private authProvider: AuthProvider
   private specLoader?: OpenAPISpecLoader
   private openApiSpec?: OpenAPIV3.Document
+  private excludeTagsLower: string[]
 
   /**
    * Create a new API client
@@ -73,6 +74,25 @@ export class ApiClient {
     }
 
     this.specLoader = specLoader
+    this.excludeTagsLower = options?.excludeTags?.map((tag) => tag.toLowerCase()) || []
+  }
+
+  private operationHasExcludedTag(operation: unknown): boolean {
+    if (
+      this.excludeTagsLower.length === 0 ||
+      !operation ||
+      typeof operation !== "object" ||
+      "$ref" in operation
+    ) {
+      return false
+    }
+
+    const tags = Array.isArray((operation as { tags?: unknown }).tags)
+      ? (operation as { tags: unknown[] }).tags
+      : []
+    return tags.some(
+      (tag) => typeof tag === "string" && this.excludeTagsLower.includes(tag.toLowerCase()),
+    )
   }
 
   /**
@@ -461,6 +481,10 @@ export class ApiClient {
           }
 
           const op = operation as any
+          if (this.operationHasExcludedTag(operation)) {
+            continue
+          }
+
           endpoints.push({
             method: method.toUpperCase(),
             path,
@@ -536,6 +560,10 @@ export class ApiClient {
         }
 
         const op = operation as any
+        if (this.operationHasExcludedTag(operation)) {
+          continue
+        }
+
         operations.push({
           method: method.toUpperCase(),
           operationId: op.operationId || "",
@@ -611,7 +639,14 @@ export class ApiClient {
       } else if (this.openApiSpec) {
         // Check if the endpoint and method exist in the OpenAPI spec
         const pathItem = this.openApiSpec.paths[endpoint]
-        if (pathItem && (pathItem as any)[method.toLowerCase()]) {
+        const operation = pathItem ? (pathItem as any)[method.toLowerCase()] : undefined
+        if (pathItem && operation) {
+          if (this.operationHasExcludedTag(operation)) {
+            throw new Error(
+              `Endpoint '${endpoint}' with method '${method.toUpperCase()}' is excluded by tag filter`,
+            )
+          }
+
           // Make the HTTP request directly since we have the spec but not the tool
           const { method: httpMethod, path } = { method: method.toUpperCase(), path: endpoint }
           return this.makeDirectHttpRequest(httpMethod, path, endpointParams)
@@ -631,7 +666,8 @@ export class ApiClient {
       if (pathItem) {
         // Find the first available HTTP method for this path
         for (const method of VALID_HTTP_METHODS) {
-          if ((pathItem as any)[method]) {
+          const operation = (pathItem as any)[method]
+          if (operation && !this.operationHasExcludedTag(operation)) {
             return this.makeDirectHttpRequest(method.toUpperCase(), endpoint, endpointParams)
           }
         }
@@ -699,5 +735,6 @@ export class ApiClient {
 }
 
 export interface ApiClientOptions {
+  excludeTags?: string[]
   httpsAgent?: HttpsAgent
 }

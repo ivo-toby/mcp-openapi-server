@@ -122,7 +122,7 @@ describe("ToolsManager", () => {
         expect(Array.from((toolsManager as any).tools.keys())).toEqual([])
       })
 
-      it("should ignore other filters when toolsMode is explicit", async () => {
+      it("should ignore include filters but still apply excludeTags when toolsMode is explicit", async () => {
         const mockTools = new Map([
           [
             "GET::users",
@@ -150,11 +150,11 @@ describe("ToolsManager", () => {
         ;(toolsManager as any).config.includeOperations = ["get"] // This should be ignored
         ;(toolsManager as any).config.includeResources = ["users"] // This should be ignored
         ;(toolsManager as any).config.includeTags = ["public"] // This should be ignored
+        ;(toolsManager as any).config.excludeTags = ["admin"] // This should still deny the tool
 
         await toolsManager.initialize()
 
-        // Should only include POST::orders despite other filters that would exclude it
-        expect(Array.from((toolsManager as any).tools.keys())).toEqual(["POST::orders"])
+        expect(Array.from((toolsManager as any).tools.keys())).toEqual([])
       })
 
       it("should handle tool names in includeTools for explicit mode", async () => {
@@ -284,7 +284,7 @@ describe("ToolsManager", () => {
     })
 
     describe("Filter Order of Application", () => {
-      it("should apply filters in the correct order: includeTools -> includeOperations -> includeResources -> includeTags", async () => {
+      it("should apply excludeTags before other include filters", async () => {
         const mockTools = new Map([
           [
             "GET::users",
@@ -331,6 +331,7 @@ describe("ToolsManager", () => {
         // Apply all filters - should work as AND operation
         ;(toolsManager as any).config.includeOperations = ["get", "post"] // Excludes DELETE
         ;(toolsManager as any).config.includeResources = ["users"] // Excludes orders
+        ;(toolsManager as any).config.excludeTags = ["write"] // Excludes write tools
         ;(toolsManager as any).config.includeTags = ["public"] // Excludes admin-only tools
 
         await toolsManager.initialize()
@@ -338,12 +339,13 @@ describe("ToolsManager", () => {
         // Only GET::users should match all criteria:
         // - Operation: GET (✓) or POST (✗ - has admin tag, not public)
         // - Resource: users (✓)
+        // - ExcludeTags: write (✓)
         // - Tags: public (✓)
         const resultToolIds = Array.from((toolsManager as any).tools.keys())
         expect(resultToolIds).toEqual(["GET::users"])
       })
 
-      it("should document filter precedence with includeTools taking highest priority", async () => {
+      it("should let excludeTags override includeTools", async () => {
         const mockTools = new Map([
           [
             "GET::users",
@@ -368,18 +370,16 @@ describe("ToolsManager", () => {
         mockSpecLoader.loadOpenAPISpec.mockResolvedValue({ paths: {} } as any)
         mockSpecLoader.parseOpenAPISpec.mockReturnValue(mockTools)
         ;(toolsManager as any).config.toolsMode = "all"
-
-        // includeTools should override other filters
-        ;(toolsManager as any).config.includeTools = ["DELETE::orders-id"] // Explicitly include this tool
+        ;(toolsManager as any).config.includeTools = ["DELETE::orders-id"]
+        ;(toolsManager as any).config.excludeTags = ["admin"]
         ;(toolsManager as any).config.includeOperations = ["get"] // Would normally exclude DELETE
         ;(toolsManager as any).config.includeResources = ["users"] // Would normally exclude orders
         ;(toolsManager as any).config.includeTags = ["public"] // Would normally exclude admin
 
         await toolsManager.initialize()
 
-        // DELETE::orders-id should be included despite other filters because it's in includeTools
         const resultToolIds = Array.from((toolsManager as any).tools.keys())
-        expect(resultToolIds).toEqual(["DELETE::orders-id"])
+        expect(resultToolIds).toEqual([])
       })
 
       it("should handle empty filter arrays correctly", async () => {
@@ -412,6 +412,7 @@ describe("ToolsManager", () => {
         ;(toolsManager as any).config.includeTools = []
         ;(toolsManager as any).config.includeOperations = []
         ;(toolsManager as any).config.includeResources = []
+        ;(toolsManager as any).config.excludeTags = []
         ;(toolsManager as any).config.includeTags = []
 
         await toolsManager.initialize()
@@ -486,6 +487,32 @@ describe("ToolsManager", () => {
       ;(toolsManager as any).config.includeTags = ["users"] // lowercase, will match uppercase "USERS"
       await toolsManager.initialize()
       expect(Array.from((toolsManager as any).tools.keys())).toEqual(["GET::a"])
+    })
+
+    it("should filter tools by excludeTags list case-insensitively", async () => {
+      const mockTools = new Map([
+        ["GET::users", { name: "users", tags: ["PUBLIC"] } as ExtendedTool],
+        ["DELETE::admin", { name: "deleteAdmin", tags: ["Admin"] } as ExtendedTool],
+        [
+          "GET::untagged",
+          {
+            name: "untagged",
+            inputSchema: { type: "object", properties: {} },
+            tags: [],
+          } as ExtendedTool,
+        ],
+      ])
+      mockSpecLoader.loadOpenAPISpec.mockResolvedValue({ paths: {} } as any)
+      mockSpecLoader.parseOpenAPISpec.mockReturnValue(mockTools)
+      ;(toolsManager as any).config.toolsMode = "all"
+      ;(toolsManager as any).config.excludeTags = ["admin"]
+
+      await toolsManager.initialize()
+
+      expect(Array.from((toolsManager as any).tools.keys()).sort()).toEqual([
+        "GET::untagged",
+        "GET::users",
+      ])
     })
 
     it("should filter tools by multiple criteria simultaneously", async () => {
@@ -605,6 +632,7 @@ describe("ToolsManager", () => {
         ;(toolsManager as any).config.includeTools = undefined
         ;(toolsManager as any).config.includeOperations = null
         ;(toolsManager as any).config.includeResources = undefined
+        ;(toolsManager as any).config.excludeTags = null
         ;(toolsManager as any).config.includeTags = null
 
         await toolsManager.initialize()
