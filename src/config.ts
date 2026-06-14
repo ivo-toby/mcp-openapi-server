@@ -1,6 +1,6 @@
 import yargs from "yargs"
 import { hideBin } from "yargs/helpers"
-import packageJson from "../package.json" with { type: "json" }
+import packageJson from "../package.json"
 import { AuthProvider } from "./auth-provider.js"
 import type { PromptDefinition } from "./prompt-types"
 import type { ResourceDefinition } from "./resource-types"
