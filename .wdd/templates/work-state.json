@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "kind": "micro_wave_state",
+  "profile": "micro",
+  "work": {
+    "id": "WORK-example-ticket",
+    "title": "Example Ticket",
+    "targetBranch": "main",
+    "baseBranch": "work/example-ticket"
+  },
+  "configuration": {
+    "reviewMode": "risk_based",
+    "monitoringMode": "adaptive",
+    "maxParallelTasks": 5
+  },
+  "strategy": {
+    "profile": "micro",
+    "executionMode": "bundled",
+    "reviewMode": "risk_based",
+    "monitoringMode": "adaptive",
+    "recommendedBy": "wdd-plan-work",
+    "confirmedBy": null,
+    "requiresUserConfirmation": false,
+    "confidence": "high",
+    "rationale": [
+      "Micro-waves default to bundled execution to minimize coordination overhead."
+    ],
+    "bundleGroups": [
+      {
+        "id": "BUNDLE-001",
+        "tasks": ["TASK-001-example-task"],
+        "branch": "work/WORK-example-ticket-bundle",
+        "workerThreadId": null,
+        "reviewThreadId": null,
+        "currentGate": "not_started"
+      }
+    ],
+    "overrideHistory": []
+  },
+  "tasks": [
+    {
+      "id": "TASK-001-example-task",
+      "path": "tasks/TASK-001-example-task.md",
+      "status": "todo",
+      "branch": "work/TASK-001-example-task",
+      "workerThreadId": null,
+      "workerWorktree": null,
+      "currentGate": "not_started",
+      "risk": "low",
+      "reviewRequired": false,
+      "pr": null,
+      "latestCommit": null,
+      "verification": null
+    }
+  ],
+  "monitoring": {
+    "mode": "manual",
+    "cadence": "adaptive",
+    "status": "inactive",
+    "lastCheckedAt": null,
+    "nextCheckDueAt": null,
+    "schedulerRef": null,
+    "fallbackPrompt": "Run wdd-run-work for WORK-example-ticket. Read state.json and task files, inspect active worker or PR references, update gates, and stop when tasks are ready for wdd-finish-work."
+  }
+}
