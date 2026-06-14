@@ -815,7 +815,7 @@ describe("loadConfig", () => {
   })
 
   describe("Array Options Handling", () => {
-    it("should handle array options for tools, tags, resources, and operations", async () => {
+    it("should handle array options for tools, include tags, exclude tags, resources, and operations", async () => {
       vi.doMock("yargs", () => ({
         default: vi.fn().mockReturnValue({
           option: vi.fn().mockReturnThis(),
@@ -825,6 +825,7 @@ describe("loadConfig", () => {
             "openapi-spec": "./spec.json",
             tool: ["tool1", "tool2", "tool3"],
             tag: ["auth", "users"],
+            excludeTag: ["admin", "internal"],
             resource: ["api/v1/users", "api/v1/posts"],
             operation: ["get", "post", "put"],
           }),
@@ -840,6 +841,7 @@ describe("loadConfig", () => {
       const config = loadConfig()
       expect(config.includeTools).toEqual(["tool1", "tool2", "tool3"])
       expect(config.includeTags).toEqual(["auth", "users"])
+      expect(config.excludeTags).toEqual(["admin", "internal"])
       expect(config.includeResources).toEqual(["api/v1/users", "api/v1/posts"])
       expect(config.includeOperations).toEqual(["get", "post", "put"])
     })
@@ -854,6 +856,7 @@ describe("loadConfig", () => {
             "openapi-spec": "./spec.json",
             tool: ["single-tool"],
             tag: ["single-tag"],
+            excludeTag: ["admin"],
             resource: ["single-resource"],
             operation: ["get"],
           }),
@@ -869,6 +872,7 @@ describe("loadConfig", () => {
       const config = loadConfig()
       expect(config.includeTools).toEqual(["single-tool"])
       expect(config.includeTags).toEqual(["single-tag"])
+      expect(config.excludeTags).toEqual(["admin"])
       expect(config.includeResources).toEqual(["single-resource"])
       expect(config.includeOperations).toEqual(["get"])
     })
@@ -883,6 +887,7 @@ describe("loadConfig", () => {
             "openapi-spec": "./spec.json",
             tool: [],
             tag: [],
+            excludeTag: [],
             resource: [],
             operation: [],
           }),
@@ -898,6 +903,7 @@ describe("loadConfig", () => {
       const config = loadConfig()
       expect(config.includeTools).toEqual([])
       expect(config.includeTags).toEqual([])
+      expect(config.excludeTags).toEqual([])
       expect(config.includeResources).toEqual([])
       expect(config.includeOperations).toEqual([])
     })
@@ -924,6 +930,7 @@ describe("loadConfig", () => {
       const config = loadConfig()
       expect(config.includeTools).toBeUndefined()
       expect(config.includeTags).toBeUndefined()
+      expect(config.excludeTags).toBeUndefined()
       expect(config.includeResources).toBeUndefined()
       expect(config.includeOperations).toBeUndefined()
     })

@@ -68,15 +68,14 @@ export class OpenAPIServer {
 
     // Use AuthProvider if provided, otherwise fallback to static headers
     const authProviderOrHeaders = config.authProvider || new StaticAuthProvider(config.headers)
-    const apiClientOptions = this.createApiClientOptions()
-    this.apiClient = apiClientOptions
-      ? new ApiClient(
-          config.apiBaseUrl,
-          authProviderOrHeaders,
-          this.toolsManager.getSpecLoader(),
-          apiClientOptions,
-        )
-      : new ApiClient(config.apiBaseUrl, authProviderOrHeaders, this.toolsManager.getSpecLoader())
+    const apiClientOptions: ApiClientOptions = this.createApiClientOptions() || {}
+    apiClientOptions.excludeTags = config.excludeTags
+    this.apiClient = new ApiClient(
+      config.apiBaseUrl,
+      authProviderOrHeaders,
+      this.toolsManager.getSpecLoader(),
+      apiClientOptions,
+    )
 
     this.initializeHandlers()
   }

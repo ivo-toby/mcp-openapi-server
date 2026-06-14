@@ -839,7 +839,12 @@ describe("OpenAPIServer", () => {
       new OpenAPIServer(configWithAuthProvider)
 
       // Verify ApiClient was constructed with the AuthProvider
-      expect(ApiClient).toHaveBeenCalledWith(config.apiBaseUrl, mockAuthProvider, expect.anything())
+      expect(ApiClient).toHaveBeenLastCalledWith(
+        config.apiBaseUrl,
+        mockAuthProvider,
+        expect.anything(),
+        expect.objectContaining({ excludeTags: undefined }),
+      )
     })
 
     it("should use StaticAuthProvider with headers when no AuthProvider provided", () => {
@@ -851,13 +856,14 @@ describe("OpenAPIServer", () => {
       new OpenAPIServer(configWithHeaders)
 
       // Verify ApiClient was constructed with a StaticAuthProvider
-      expect(ApiClient).toHaveBeenCalledWith(
+      expect(ApiClient).toHaveBeenLastCalledWith(
         config.apiBaseUrl,
         expect.objectContaining({
           getAuthHeaders: expect.any(Function),
           handleAuthError: expect.any(Function),
         }),
         expect.anything(),
+        expect.objectContaining({ excludeTags: undefined }),
       )
     })
 
@@ -876,7 +882,28 @@ describe("OpenAPIServer", () => {
       new OpenAPIServer(configWithBoth)
 
       // Verify ApiClient was constructed with the AuthProvider, not the headers
-      expect(ApiClient).toHaveBeenCalledWith(config.apiBaseUrl, mockAuthProvider, expect.anything())
+      expect(ApiClient).toHaveBeenLastCalledWith(
+        config.apiBaseUrl,
+        mockAuthProvider,
+        expect.anything(),
+        expect.objectContaining({ excludeTags: undefined }),
+      )
+    })
+
+    it("should pass excludeTags to ApiClient options", () => {
+      const configWithExcludeTags: OpenAPIMCPServerConfig = {
+        ...config,
+        excludeTags: ["admin", "internal"],
+      }
+
+      new OpenAPIServer(configWithExcludeTags)
+
+      expect(ApiClient).toHaveBeenLastCalledWith(
+        config.apiBaseUrl,
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({ excludeTags: ["admin", "internal"] }),
+      )
     })
 
     it("should create an HTTPS agent for mTLS settings", () => {

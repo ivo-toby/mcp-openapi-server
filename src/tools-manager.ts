@@ -24,6 +24,15 @@ export class ToolsManager {
     this.logger = new Logger(this.config.verbose)
   }
 
+  private toolHasMatchingTag(tool: ExtendedTool, tagsLower: string[]): boolean {
+    if (tagsLower.length === 0) {
+      return false
+    }
+
+    const toolTags = Array.isArray(tool.tags) ? tool.tags : []
+    return toolTags.some((tag) => typeof tag === "string" && tagsLower.includes(tag.toLowerCase()))
+  }
+
   /**
    * Get the OpenAPI spec loader instance
    */
@@ -112,11 +121,13 @@ export class ToolsManager {
       // Only load tools explicitly listed in includeTools
       const rawTools = this.specLoader.parseOpenAPISpec(spec)
       const filtered = new Map<string, Tool>()
+      const excludeTagsLower = this.config.excludeTags?.map((tag) => tag.toLowerCase()) || []
 
       if (this.config.includeTools && this.config.includeTools.length > 0) {
         const includeToolsLower = this.config.includeTools.map((t) => t.toLowerCase())
 
         for (const [toolId, tool] of rawTools.entries()) {
+          const extendedTool = tool as ExtendedTool
           const toolIdLower = toolId.toLowerCase()
           const toolNameLower = tool.name.toLowerCase()
 
@@ -125,6 +136,9 @@ export class ToolsManager {
             includeToolsLower.includes(toolIdLower) ||
             includeToolsLower.includes(toolNameLower)
           ) {
+            if (this.toolHasMatchingTag(extendedTool, excludeTagsLower)) {
+              continue
+            }
             filtered.set(toolId, tool)
           }
         }
@@ -151,9 +165,15 @@ export class ToolsManager {
     const includeResourcesLower =
       this.config.includeResources?.map((res) => res.toLowerCase()) || []
     const includeTagsLower = this.config.includeTags?.map((tag) => tag.toLowerCase()) || []
+    const excludeTagsLower = this.config.excludeTags?.map((tag) => tag.toLowerCase()) || []
 
     for (const [toolId, tool] of rawTools.entries()) {
       const extendedTool = tool as ExtendedTool
+
+      // excludeTags filter - always wins over include filters
+      if (this.toolHasMatchingTag(extendedTool, excludeTagsLower)) {
+        continue
+      }
 
       // includeTools filter - takes highest priority
       if (includeToolsLower.length > 0) {
@@ -194,11 +214,7 @@ export class ToolsManager {
 
       // includeTags filter
       if (includeTagsLower.length > 0) {
-        const toolTags = Array.isArray(extendedTool.tags) ? extendedTool.tags : []
-        const hasMatchingTag = toolTags.some(
-          (tag) => typeof tag === "string" && includeTagsLower.includes(tag.toLowerCase()),
-        )
-        if (!hasMatchingTag) {
+        if (!this.toolHasMatchingTag(extendedTool, includeTagsLower)) {
           continue
         }
       }

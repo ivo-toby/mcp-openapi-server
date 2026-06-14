@@ -162,7 +162,7 @@ export class StreamableHttpServerTransport implements Transport {
    *
    * @param message JSON-RPC message
    */
-  async send(message: JSONRPCMessage): Promise<void> {
+  send(message: JSONRPCMessage): Promise<void> {
     this.logger.error(`StreamableHttpServerTransport: Sending message: ${JSON.stringify(message)}`)
     let targetSessionId: string | undefined
     let messageIdForThisResponse: string | number | null = null
@@ -187,7 +187,7 @@ export class StreamableHttpServerTransport implements Transport {
           this.logger.error(
             `StreamableHttpServerTransport: Response for ID ${messageIdForThisResponse} was handled by an initResponseHandler (e.g., synchronous POST response for initialize or tools/list).`,
           )
-          return // Exit, as response was sent on POST by the handler.
+          return Promise.resolve() // Exit, as response was sent on POST by the handler.
         } else {
           this.logger.error(
             `StreamableHttpServerTransport: Response for ID ${messageIdForThisResponse} was NOT exclusively handled by an initResponseHandler or handler did not remove from requestSessionMap. Proceeding to GET stream / broadcast if applicable.`,
@@ -226,7 +226,7 @@ export class StreamableHttpServerTransport implements Transport {
           this.sendMessageToSession(sid, session, message)
         }
       }
-      return
+      return Promise.resolve()
     }
 
     // If targetSessionId is known (it's a response to a request that was not handled synchronously by initResponseHandler)
@@ -243,6 +243,8 @@ export class StreamableHttpServerTransport implements Transport {
         `StreamableHttpServerTransport: No active GET connections for session ${targetSessionId} to send message (ID: ${messageIdForThisResponse}). Message might not be delivered if not handled by POST.`,
       )
     }
+
+    return Promise.resolve()
   }
 
   /**
@@ -410,8 +412,8 @@ export class StreamableHttpServerTransport implements Transport {
     let body = ""
     let size = 0
 
-    req.on("data", (chunk) => {
-      size += chunk.length
+    req.on("data", (chunk: Buffer | string) => {
+      size += typeof chunk === "string" ? Buffer.byteLength(chunk) : chunk.length
       if (size > this.maxBodySize) {
         res.writeHead(413)
         res.end(

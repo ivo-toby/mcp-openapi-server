@@ -256,10 +256,13 @@ private extractResourceName(path: string): string | undefined {
 
 Filters are applied in a specific order with different precedence:
 
-1. **`includeTools`** (highest priority): If specified, overrides all other filters
-2. **`includeOperations`**: Filter by HTTP methods (AND operation with remaining filters)
-3. **`includeResources`**: Filter by resource names (AND operation)
-4. **`includeTags`**: Filter by OpenAPI tags (AND operation)
+1. **`excludeTags`** (hard deny): If a tool has any excluded OpenAPI tag, it is removed before include filters are applied.
+2. **`includeTools`**: If specified, selects only matching tool IDs or names after excluded tags have been removed, then bypasses the remaining include filters.
+3. **`includeOperations`**: When `includeTools` is not set, filter by HTTP methods (AND operation with remaining filters)
+4. **`includeResources`**: When `includeTools` is not set, filter by resource names (AND operation)
+5. **`includeTags`**: When `includeTools` is not set, filter by OpenAPI tags (AND operation)
+
+`excludeTags` is a tool-surface filter, not an authorization mechanism. Untagged endpoints pass the exclude filter, so sensitive operations still need upstream API authorization and correct OpenAPI tags.
 
 ### Filter Modes
 
@@ -267,7 +270,7 @@ Filters are applied in a specific order with different precedence:
 
 ```typescript
 toolsMode: "all"
-// Apply filters as AND operations
+// Apply filters as AND operations after excludeTags removes denied tools
 // Empty filter arrays = no filtering for that dimension
 ```
 
@@ -277,7 +280,8 @@ toolsMode: "all"
 toolsMode: "explicit"
 includeTools: ["GET::users", "POST::users"]
 // ONLY load explicitly listed tools
-// Ignore all other filters
+// Ignore includeTags, includeResources, and includeOperations
+// Still apply excludeTags as a deny filter
 ```
 
 #### Dynamic Mode
@@ -288,6 +292,7 @@ toolsMode: "dynamic"
 // - list-api-endpoints
 // - get-api-endpoint-schema
 // - invoke-api-endpoint
+// excludeTags filters discovery responses and blocks matching dynamic invocations
 ```
 
 ### Case Sensitivity

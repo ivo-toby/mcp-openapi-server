@@ -145,6 +145,7 @@ npx @ivotoby/openapi-mcp-server \
   --api-base-url https://api.example.com \
   --openapi-spec https://api.example.com/openapi.json \
   --headers "Authorization:Bearer token123,X-API-Key:your-api-key" \
+  --exclude-tag admin \
   --client-cert ./certs/client.pem \
   --client-key ./certs/client-key.pem \
   --name "my-mcp-server" \
@@ -300,12 +301,15 @@ Based on the Stainless article "What We Learned Converting Complex OpenAPI Specs
 
 - `--tools <all|dynamic|explicit>`: Choose tool loading mode:
   - `all` (default): Load all tools from the OpenAPI spec, applying any specified filters
-  - `dynamic`: Load only dynamic meta-tools (`list-api-endpoints`, `get-api-endpoint-schema`, `invoke-api-endpoint`)
-  - `explicit`: Load only tools explicitly listed in `--tool` options, ignoring all other filters
-- `--tool <toolId>`: Import only specified tool IDs or names. Can be used multiple times.
+  - `dynamic`: Load only dynamic meta-tools (`list-api-endpoints`, `get-api-endpoint-schema`, `invoke-api-endpoint`). `--exclude-tag` still applies to dynamic endpoint discovery and invocation.
+  - `explicit`: Load only tools explicitly listed in `--tool` options, ignoring include filters. `--exclude-tag` still applies as a deny filter.
+- `--tool <toolId>`: Import only specified tool IDs or names. Can be used multiple times. In `all` mode, this bypasses `--tag`, `--resource`, and `--operation`, but not `--exclude-tag`.
 - `--tag <tag>`: Import only tools with the specified OpenAPI tag. Can be used multiple times.
+- `--exclude-tag <tag>`: Exclude tools with the specified OpenAPI tag. Can be used multiple times. Excluded tags take precedence over `--tool`.
 - `--resource <resource>`: Import only tools under the specified resource path prefixes. Can be used multiple times.
 - `--operation <method>`: Import only tools for the specified HTTP methods (get, post, etc). Can be used multiple times.
+
+Tag filters are tool-surface controls, not authorization. Keep protecting sensitive endpoints with the upstream API's auth model. Untagged endpoints are not affected by `--exclude-tag`.
 
 **Examples:**
 
@@ -321,6 +325,9 @@ npx @ivotoby/openapi-mcp-server --api-base-url https://api.example.com --openapi
 
 # Load tools tagged with "user" under the "/users" resource
 npx @ivotoby/openapi-mcp-server --api-base-url https://api.example.com --openapi-spec https://api.example.com/openapi.json --tag user --resource users
+
+# Exclude admin and internal endpoints from any tool loading mode
+npx @ivotoby/openapi-mcp-server --api-base-url https://api.example.com --openapi-spec https://api.example.com/openapi.json --exclude-tag admin --exclude-tag internal
 
 # Load only POST operations
 npx @ivotoby/openapi-mcp-server --api-base-url https://api.example.com --openapi-spec https://api.example.com/openapi.json --operation post
@@ -577,6 +584,7 @@ const config = {
   // Optional: Apply filters to control which tools are loaded
   includeTools: ["GET::users", "POST::users"], // Only these tools
   includeTags: ["public"], // Only tools with these tags
+  excludeTags: ["admin", "internal"], // Never expose tools with these tags
   includeResources: ["users"], // Only tools under these resources
   includeOperations: ["get", "post"], // Only these HTTP methods
 }
@@ -586,13 +594,15 @@ const config = {
   // ... other config
   toolsMode: "dynamic" as const,
   // Provides: list-api-endpoints, get-api-endpoint-schema, invoke-api-endpoint
+  // excludeTags still hides matching operations from discovery and invocation
 }
 
-// Load only explicitly specified tools (ignores other filters)
+// Load only explicitly specified tools (include filters are ignored)
 const config = {
   // ... other config
   toolsMode: "explicit" as const,
   includeTools: ["GET::users", "POST::users"], // Only these exact tools
+  excludeTags: ["admin"], // Still applied as a deny filter
   // includeTags, includeResources, includeOperations are ignored in explicit mode
 }
 ```
@@ -932,10 +942,24 @@ The MCP server handles various OpenAPI schema complexities:
 
 - `npm run build` - Builds the TypeScript source
 - `npm run clean` - Removes build artifacts
+- `npm test` - Runs the Vitest test suite
 - `npm run typecheck` - Runs TypeScript type checking
-- `npm run lint` - Runs ESLint
+- `npm run lint` - Runs type-aware ESLint against `src/**/*.ts`
 - `npm run dev` - Watches source files and rebuilds on changes
 - `npm run inspect-watch` - Runs the inspector with auto-reload on changes
+
+### Verification Before Pull Requests
+
+Run the full local verification suite before opening a PR:
+
+```bash
+npm run build
+npm test
+npm run typecheck
+npm run lint
+```
+
+`npm run build` refreshes `dist/` so CLI execution tests use current code. `npm run lint` is intentionally type-aware and should be clean for all source files.
 
 ### Development Workflow
 
@@ -950,7 +974,7 @@ The MCP server handles various OpenAPI schema complexities:
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Run tests and linting: `npm run typecheck && npm run lint`
+4. Run build, tests, typecheck, and linting: `npm run build && npm test && npm run typecheck && npm run lint`
 5. Submit a pull request
 
 **📖 For comprehensive developer documentation, see [docs/developer-guide.md](./docs/developer-guide.md)**
@@ -975,7 +999,7 @@ A: Use the `AuthProvider` interface instead of static headers. AuthProvider allo
 A: `AuthProvider` is an interface for dynamic authentication that gets fresh headers before each request and handles authentication errors. Use it when your API has expiring tokens, requires token refresh, or needs complex authentication logic that static headers can't handle.
 
 **Q: How do I filter which tools are loaded?**
-A: Use the `--tool`, `--tag`, `--resource`, and `--operation` flags with `--tools all` (default), set `--tools dynamic` for meta-tools only, or use `--tools explicit` to load only tools specified with `--tool` (ignoring other filters).
+A: Use the `--tool`, `--tag`, `--exclude-tag`, `--resource`, and `--operation` flags with `--tools all` (default), set `--tools dynamic` for meta-tools only, or use `--tools explicit` to load only tools specified with `--tool`. `--exclude-tag` is a deny filter and still applies in dynamic and explicit modes.
 
 **Q: When should I use dynamic mode?**
 A: Dynamic mode provides meta-tools (`list-api-endpoints`, `get-api-endpoint-schema`, `invoke-api-endpoint`) to inspect and interact with endpoints without preloading all operations, which is useful for large or changing APIs.
