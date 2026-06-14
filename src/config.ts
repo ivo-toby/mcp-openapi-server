@@ -1,6 +1,7 @@
 import yargs from "yargs"
 import { hideBin } from "yargs/helpers"
 import { AuthProvider } from "./auth-provider.js"
+import type { ExtraToolDefinition } from "./types/extra-tools"
 import type { PromptDefinition } from "./prompt-types"
 import type { ResourceDefinition } from "./resource-types"
 
@@ -49,6 +50,7 @@ export interface OpenAPIMCPServerConfig {
   /** Inline resources JSON content */
   resourcesInline?: string
   verbose?: boolean
+  extraTools?: ExtraToolDefinition[]
 }
 
 /**
