@@ -58,6 +58,11 @@ async function main(): Promise<void> {
       logger.error("OpenAPI MCP Server running on stdio")
     }
   } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Unknown argument")) {
+      logger.fatal(error.message)
+      process.exit(1)
+    }
+
     logger.fatal("Failed to start server:", error)
     process.exit(1)
   }

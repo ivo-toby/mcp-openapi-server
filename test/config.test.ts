@@ -127,6 +127,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({
           "api-base-url": "https://api.example.com",
           "openapi-spec": "./spec.json",
@@ -185,6 +188,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({
           "openapi-spec": "./spec.json",
         }),
@@ -207,6 +213,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({
           "api-base-url": "https://api.example.com",
         }),
@@ -229,6 +238,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({
           // empty object
         }),
@@ -291,6 +303,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({
           "api-base-url": "https://api.example.com",
           "openapi-spec": "./spec.json",
@@ -317,6 +332,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({
           "api-base-url": "https://api.example.com",
           "openapi-spec": "./spec.json",
@@ -342,6 +360,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({
           "api-base-url": "https://api.example.com",
           "openapi-spec": "./spec.json",
@@ -369,6 +390,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({
           "api-base-url": "https://api.example.com",
           "openapi-spec": "./spec.json",
@@ -396,6 +420,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({
           "api-base-url": "https://api.example.com",
           "openapi-spec": "./spec.json",
@@ -419,6 +446,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({
           "api-base-url": "https://api.example.com",
           "openapi-spec": "https://api.example.com/openapi.json",
@@ -476,6 +506,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({
           "api-base-url": "https://api.example.com",
           "openapi-spec": "./spec.json",
@@ -499,6 +532,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({}),
       }),
     }))
@@ -522,6 +558,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({
           "api-base-url": "https://api.example.com",
           "openapi-spec": "./spec.json",
@@ -545,6 +584,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({
           "api-base-url": "https://api.example.com",
           "openapi-spec": "./spec.json",
@@ -576,6 +618,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({
           "api-base-url": "https://api.example.com",
           "openapi-spec": "./spec.json",
@@ -599,6 +644,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({}),
       }),
     }))
@@ -630,6 +678,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({}),
       }),
     }))
@@ -653,6 +704,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({}),
       }),
     }))
@@ -675,6 +729,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({
           "api-base-url": "https://api.example.com",
           "spec-from-stdin": true,
@@ -701,6 +758,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({
           "api-base-url": "https://api.example.com",
           "spec-inline": inlineSpec,
@@ -725,6 +785,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({}),
       }),
     }))
@@ -750,6 +813,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({}),
       }),
     }))
@@ -773,6 +839,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({
           "api-base-url": "https://api.example.com",
         }),
@@ -795,6 +864,9 @@ describe("loadConfig", () => {
       default: vi.fn().mockReturnValue({
         option: vi.fn().mockReturnThis(),
         help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
         parseSync: vi.fn().mockReturnValue({
           "api-base-url": "https://api.example.com",
           "openapi-spec": "./spec.json",
@@ -820,6 +892,9 @@ describe("loadConfig", () => {
         default: vi.fn().mockReturnValue({
           option: vi.fn().mockReturnThis(),
           help: vi.fn().mockReturnThis(),
+          version: vi.fn().mockReturnThis(),
+          strictOptions: vi.fn().mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
           parseSync: vi.fn().mockReturnValue({
             "api-base-url": "https://api.example.com",
             "openapi-spec": "./spec.json",
@@ -851,6 +926,9 @@ describe("loadConfig", () => {
         default: vi.fn().mockReturnValue({
           option: vi.fn().mockReturnThis(),
           help: vi.fn().mockReturnThis(),
+          version: vi.fn().mockReturnThis(),
+          strictOptions: vi.fn().mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
           parseSync: vi.fn().mockReturnValue({
             "api-base-url": "https://api.example.com",
             "openapi-spec": "./spec.json",
@@ -882,6 +960,9 @@ describe("loadConfig", () => {
         default: vi.fn().mockReturnValue({
           option: vi.fn().mockReturnThis(),
           help: vi.fn().mockReturnThis(),
+          version: vi.fn().mockReturnThis(),
+          strictOptions: vi.fn().mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
           parseSync: vi.fn().mockReturnValue({
             "api-base-url": "https://api.example.com",
             "openapi-spec": "./spec.json",
@@ -913,6 +994,9 @@ describe("loadConfig", () => {
         default: vi.fn().mockReturnValue({
           option: vi.fn().mockReturnThis(),
           help: vi.fn().mockReturnThis(),
+          version: vi.fn().mockReturnThis(),
+          strictOptions: vi.fn().mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
           parseSync: vi.fn().mockReturnValue({
             "api-base-url": "https://api.example.com",
             "openapi-spec": "./spec.json",
@@ -943,6 +1027,9 @@ describe("loadConfig", () => {
         default: vi.fn().mockReturnValue({
           option: vi.fn().mockReturnThis(),
           help: vi.fn().mockReturnThis(),
+          version: vi.fn().mockReturnThis(),
+          strictOptions: vi.fn().mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
           parseSync: vi.fn().mockReturnValue({
             "api-base-url": "https://api.example.com",
             "openapi-spec": "./spec.json",
@@ -965,6 +1052,9 @@ describe("loadConfig", () => {
         default: vi.fn().mockReturnValue({
           option: vi.fn().mockReturnThis(),
           help: vi.fn().mockReturnThis(),
+          version: vi.fn().mockReturnThis(),
+          strictOptions: vi.fn().mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
           parseSync: vi.fn().mockReturnValue({
             "api-base-url": "https://api.example.com",
             "openapi-spec": "./spec.json",
@@ -989,6 +1079,9 @@ describe("loadConfig", () => {
         default: vi.fn().mockReturnValue({
           option: vi.fn().mockReturnThis(),
           help: vi.fn().mockReturnThis(),
+          version: vi.fn().mockReturnThis(),
+          strictOptions: vi.fn().mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
           parseSync: vi.fn().mockReturnValue({
             "api-base-url": "https://api.example.com",
             "openapi-spec": "./spec.json",
@@ -1011,6 +1104,9 @@ describe("loadConfig", () => {
         default: vi.fn().mockReturnValue({
           option: vi.fn().mockReturnThis(),
           help: vi.fn().mockReturnThis(),
+          version: vi.fn().mockReturnThis(),
+          strictOptions: vi.fn().mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
           parseSync: vi.fn().mockReturnValue({
             "api-base-url": "https://api.example.com",
             "openapi-spec": "./spec.json",
@@ -1034,6 +1130,9 @@ describe("loadConfig", () => {
         default: vi.fn().mockReturnValue({
           option: vi.fn().mockReturnThis(),
           help: vi.fn().mockReturnThis(),
+          version: vi.fn().mockReturnThis(),
+          strictOptions: vi.fn().mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
           parseSync: vi.fn().mockReturnValue({
             "api-base-url": "https://api.example.com",
             "openapi-spec": "./spec.json",
@@ -1057,6 +1156,9 @@ describe("loadConfig", () => {
         default: vi.fn().mockReturnValue({
           option: vi.fn().mockReturnThis(),
           help: vi.fn().mockReturnThis(),
+          version: vi.fn().mockReturnThis(),
+          strictOptions: vi.fn().mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
           parseSync: vi.fn().mockReturnValue({
             "api-base-url": "https://api.example.com",
             "openapi-spec": "./spec.json",
@@ -1080,6 +1182,9 @@ describe("loadConfig", () => {
         default: vi.fn().mockReturnValue({
           option: vi.fn().mockReturnThis(),
           help: vi.fn().mockReturnThis(),
+          version: vi.fn().mockReturnThis(),
+          strictOptions: vi.fn().mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
           parseSync: vi.fn().mockReturnValue({
             "api-base-url": "https://api.example.com",
             "openapi-spec": "./spec.json",
@@ -1102,6 +1207,9 @@ describe("loadConfig", () => {
         default: vi.fn().mockReturnValue({
           option: vi.fn().mockReturnThis(),
           help: vi.fn().mockReturnThis(),
+          version: vi.fn().mockReturnThis(),
+          strictOptions: vi.fn().mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
           parseSync: vi.fn().mockReturnValue({
             "api-base-url": "https://api.example.com",
             "openapi-spec": "./spec.json",
@@ -1125,6 +1233,9 @@ describe("loadConfig", () => {
         default: vi.fn().mockReturnValue({
           option: vi.fn().mockReturnThis(),
           help: vi.fn().mockReturnThis(),
+          version: vi.fn().mockReturnThis(),
+          strictOptions: vi.fn().mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
           parseSync: vi.fn().mockReturnValue({
             "api-base-url": "https://api.example.com",
             "openapi-spec": "./spec.json",
@@ -1148,6 +1259,9 @@ describe("loadConfig", () => {
         default: vi.fn().mockReturnValue({
           option: vi.fn().mockReturnThis(),
           help: vi.fn().mockReturnThis(),
+          version: vi.fn().mockReturnThis(),
+          strictOptions: vi.fn().mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
           parseSync: vi.fn().mockReturnValue({
             "api-base-url": "https://api.example.com",
             "openapi-spec": "./spec.json",
@@ -1169,6 +1283,9 @@ describe("loadConfig", () => {
         default: vi.fn().mockReturnValue({
           option: vi.fn().mockReturnThis(),
           help: vi.fn().mockReturnThis(),
+          version: vi.fn().mockReturnThis(),
+          strictOptions: vi.fn().mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
           parseSync: vi.fn().mockReturnValue({
             "api-base-url": "https://api.example.com",
             "openapi-spec": "./spec.json",
@@ -1192,6 +1309,9 @@ describe("loadConfig", () => {
         default: vi.fn().mockReturnValue({
           option: vi.fn().mockReturnThis(),
           help: vi.fn().mockReturnThis(),
+          version: vi.fn().mockReturnThis(),
+          strictOptions: vi.fn().mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
           parseSync: vi.fn().mockReturnValue({
             "api-base-url": "https://api.example.com",
             "openapi-spec": "./spec.json",
@@ -1221,6 +1341,9 @@ describe("loadConfig", () => {
         default: vi.fn().mockReturnValue({
           option: vi.fn().mockReturnThis(),
           help: vi.fn().mockReturnThis(),
+          version: vi.fn().mockReturnThis(),
+          strictOptions: vi.fn().mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
           parseSync: vi.fn().mockReturnValue({
             "api-base-url": "https://api.example.com",
             "openapi-spec": "./spec.json",
@@ -1250,6 +1373,9 @@ describe("loadConfig", () => {
         default: vi.fn().mockReturnValue({
           option: vi.fn().mockReturnThis(),
           help: vi.fn().mockReturnThis(),
+          version: vi.fn().mockReturnThis(),
+          strictOptions: vi.fn().mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
           parseSync: vi.fn().mockReturnValue({
             "api-base-url": "https://api.example.com",
             "openapi-spec": "./spec.json",
@@ -1276,6 +1402,9 @@ describe("loadConfig", () => {
         default: vi.fn().mockReturnValue({
           option: vi.fn().mockReturnThis(),
           help: vi.fn().mockReturnThis(),
+          version: vi.fn().mockReturnThis(),
+          strictOptions: vi.fn().mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
           parseSync: vi.fn().mockReturnValue({
             "api-base-url": "https://api.example.com",
             "openapi-spec": "./spec.json",

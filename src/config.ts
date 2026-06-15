@@ -1,5 +1,6 @@
 import yargs from "yargs"
 import { hideBin } from "yargs/helpers"
+import packageJson from "../package.json"
 import { AuthProvider } from "./auth-provider.js"
 import type { ExtraToolDefinition } from "./types/extra-tools"
 import type { PromptDefinition } from "./prompt-types"
@@ -228,6 +229,11 @@ export function loadConfig(): OpenAPIMCPServerConfig {
     .option("verbose", {
       type: "string",
       description: "Enable verbose logging",
+    })
+    .version(packageJson.version)
+    .strictOptions()
+    .fail((message, error) => {
+      throw new Error(message || error?.message)
     })
     .help()
     .parseSync()

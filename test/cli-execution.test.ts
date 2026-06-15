@@ -103,6 +103,67 @@ describe("CLI Execution", () => {
     })
   }, 10000)
 
+  it("prints the package version for --version", async () => {
+    const cliPath = join(__dirname, "..", "dist", "cli.js")
+
+    const child = spawn("node", [cliPath, "--version"], {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+      },
+    })
+
+    let stdout = ""
+
+    child.stdout.on("data", (data) => {
+      stdout += data.toString()
+    })
+
+    return new Promise<void>((resolve, reject) => {
+      child.on("exit", (code) => {
+        expect(code).toBe(0)
+        expect(stdout.trim()).toBe("0.1.0")
+        resolve()
+      })
+
+      child.on("error", reject)
+    })
+  })
+
+  it("rejects unknown top-level flags before config validation", async () => {
+    const cliPath = join(__dirname, "..", "dist", "cli.js")
+
+    const child = spawn("node", [cliPath, "--definitely-not-a-real-flag"], {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+      },
+    })
+
+    let stderr = ""
+
+    child.stderr.on("data", (data) => {
+      stderr += data.toString()
+    })
+
+    return new Promise<void>((resolve, reject) => {
+      child.on("exit", (code) => {
+        try {
+          expect(code).not.toBe(0)
+          expect(stderr).toContain("Unknown arguments: definitely-not-a-real-flag")
+          expect(stderr).not.toContain("OpenAPI spec is required")
+          resolve()
+        } catch (error) {
+          reject(error)
+        }
+      })
+
+      child.on("error", reject)
+    })
+  })
+
   it("should be executable when imported as library without auto-starting", async () => {
     // This test ensures that importing the main module doesn't auto-start the server
     const { main } = await import("../src/index.js")
