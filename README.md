@@ -210,6 +210,17 @@ npx @ivotoby/openapi-mcp-server \
   --openapi-spec https://api.example.com/openapi.json
 ```
 
+For a hosted API that requires a header API key, use the same URL-loading flow
+and pass the header explicitly. Xquik publishes an OpenAPI 3.1 document and
+expects the `x-api-key` header:
+
+```bash
+npx @ivotoby/openapi-mcp-server \
+  --api-base-url https://xquik.com \
+  --openapi-spec https://xquik.com/openapi.json \
+  --headers "x-api-key:${XQUIK_API_KEY}"
+```
+
 ### 2. Local File Loading
 
 Load the OpenAPI spec from a local file:
