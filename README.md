@@ -1,5 +1,7 @@
 # OpenAPI MCP Server
 
+[![MCP Toplist](https://mcptoplist.com/badge/glama%2Fivo-toby%2Fmcp-openapi-server.svg)](https://mcptoplist.com/server/glama%2Fivo-toby%2Fmcp-openapi-server)
+
 [![smithery badge](https://smithery.ai/badge/@ivo-toby/mcp-openapi-server)](https://smithery.ai/server/@ivo-toby/mcp-openapi-server)
 
 A Model Context Protocol (MCP) server that exposes OpenAPI endpoints as MCP tools, along with optional support for MCP prompts and resources. This server allows Large Language Models to discover and interact with REST APIs defined by OpenAPI specifications through the MCP protocol.
