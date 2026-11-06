@@ -63,7 +63,10 @@ export class OpenAPIServer {
       capabilities.resources = {}
     }
 
-    this.server = new Server({ name: config.name, version: config.version }, { capabilities })
+    this.server = new Server(
+      { name: config.name, version: config.version },
+      { capabilities, instructions: config.instructions },
+    )
     this.toolsManager = new ToolsManager(config)
 
     // Use AuthProvider if provided, otherwise fallback to static headers

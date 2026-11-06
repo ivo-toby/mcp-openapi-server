@@ -137,6 +137,7 @@ The server can be configured through environment variables or command line argum
 - `PROMPTS_INLINE` - Provide prompts directly as JSON string
 - `RESOURCES_PATH` - Path or URL to resources JSON/YAML file
 - `RESOURCES_INLINE` - Provide resources directly as JSON string
+- `SERVER_INSTRUCTIONS` - Instructions describing how to use the server, handed to MCP clients
 
 ### Command Line Arguments
 
@@ -155,6 +156,7 @@ npx @ivotoby/openapi-mcp-server \
   --host 127.0.0.1 \
   --path /mcp \
   --disable-abbreviation true \
+  --instructions "Pages are created unapproved: approve the version once you are done." \
   --verbose false
 ```
 
@@ -332,6 +334,19 @@ npx @ivotoby/openapi-mcp-server --api-base-url https://api.example.com --openapi
 # Load only POST operations
 npx @ivotoby/openapi-mcp-server --api-base-url https://api.example.com --openapi-spec https://api.example.com/openapi.json --operation post
 ```
+
+## Server Instructions
+
+The MCP protocol lets a server describe how it is meant to be used: the text travels in the `initialize` result, and a client may add it to the system prompt of the model. It's the place for what an OpenAPI description can't say, such as what has to be called before what.
+
+```typescript
+const config = {
+  // …
+  instructions: "Pages are created unapproved: approve the version once you are done.",
+}
+```
+
+The same text can be given to the CLI with `--instructions` or with the `SERVER_INSTRUCTIONS` environment variable. Keep it short: it is handed over at every session, and it takes room in the context of the model.
 
 ## Prompts and Resources
 

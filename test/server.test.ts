@@ -108,6 +108,17 @@ describe("OpenAPIServer", () => {
     mockApiClient = server.apiClient
   })
 
+  it("should hand the configured instructions to the MCP server", () => {
+    vi.mocked(Server).mockClear()
+
+    new OpenAPIServer({ ...config, instructions: "Approve the version after writing a page" })
+
+    expect(Server).toHaveBeenCalledWith(
+      { name: config.name, version: config.version },
+      expect.objectContaining({ instructions: "Approve the version after writing a page" }),
+    )
+  })
+
   it("should construct with config", () => {
     expect(server).toBeInstanceOf(OpenAPIServer)
   })

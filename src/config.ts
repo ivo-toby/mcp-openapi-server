@@ -52,6 +52,8 @@ export interface OpenAPIMCPServerConfig {
   resourcesPath?: string
   /** Inline resources JSON content */
   resourcesInline?: string
+  /** Instructions describing how to use the server, handed to clients in the initialize result */
+  instructions?: string
   verbose?: boolean
   extraTools?: ExtraToolDefinition[]
 }
@@ -226,6 +228,10 @@ export function loadConfig(): OpenAPIMCPServerConfig {
       type: "string",
       description: "Provide resources directly as JSON string",
     })
+    .option("instructions", {
+      type: "string",
+      description: "Instructions describing how to use the server, handed to MCP clients",
+    })
     .option("verbose", {
       type: "string",
       description: "Enable verbose logging",
@@ -354,6 +360,7 @@ export function loadConfig(): OpenAPIMCPServerConfig {
     resourcesPath: (argv.resources as string | undefined) || process.env.RESOURCES_PATH,
     resourcesInline:
       (argv["resources-inline"] as string | undefined) || process.env.RESOURCES_INLINE,
+    instructions: (argv.instructions as string | undefined) || process.env.SERVER_INSTRUCTIONS,
     verbose,
   }
 }

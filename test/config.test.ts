@@ -105,6 +105,7 @@ describe("loadConfig", () => {
     delete process.env.CLIENT_KEY_PASSPHRASE
     delete process.env.REJECT_UNAUTHORIZED
     delete process.env.VERBOSE
+    delete process.env.SERVER_INSTRUCTIONS
 
     // Reset mocks before each test
     vi.clearAllMocks()
@@ -119,6 +120,52 @@ describe("loadConfig", () => {
     process.argv = [...originalArgv]
     vi.restoreAllMocks()
     vi.resetModules()
+  })
+
+  it("should load the instructions from the command line or from the environment", async () => {
+    process.env.SERVER_INSTRUCTIONS = "from the environment"
+
+    vi.doMock("yargs", () => ({
+      default: vi.fn().mockReturnValue({
+        option: vi.fn().mockReturnThis(),
+        help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
+        parseSync: vi.fn().mockReturnValue({
+          "api-base-url": "https://api.example.com",
+          "openapi-spec": "./spec.json",
+          instructions: "from the command line",
+        }),
+      }),
+    }))
+
+    vi.doMock("yargs/helpers", () => ({
+      hideBin: vi.fn((arr) => arr),
+    }))
+
+    const { loadConfig } = await import("../src/config")
+
+    expect(loadConfig().instructions).toBe("from the command line")
+
+    vi.resetModules()
+    vi.doMock("yargs", () => ({
+      default: vi.fn().mockReturnValue({
+        option: vi.fn().mockReturnThis(),
+        help: vi.fn().mockReturnThis(),
+        version: vi.fn().mockReturnThis(),
+        strictOptions: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
+        parseSync: vi.fn().mockReturnValue({
+          "api-base-url": "https://api.example.com",
+          "openapi-spec": "./spec.json",
+        }),
+      }),
+    }))
+
+    const { loadConfig: loadConfigAgain } = await import("../src/config")
+
+    expect(loadConfigAgain().instructions).toBe("from the environment")
   })
 
   it("should load config from command line arguments", async () => {
