@@ -76,6 +76,8 @@ npx @ivotoby/openapi-mcp-server \
   --port 3000
 ```
 
+> **Protocol version:** The HTTP examples below use MCP `2025-03-26`, including the `initialize` handshake, `Mcp-Session-Id`, and the standalone GET stream. MCP `2026-07-28` removed those protocol features. For that revision, see the [current Streamable HTTP specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http) instead of following this session-based sequence.
+
 2. Interact with the server using HTTP requests:
 
 ```bash
