@@ -135,6 +135,10 @@ export function isBinaryRequestBody(contentType: string | undefined, schema?: un
     if (type !== undefined && type !== "string") {
       return false
     }
+    // `*/*` with a string schema is free-form text (e.g. springdoc's `@RequestBody String`)
+    if (mediaType === "*/*" && type === "string") {
+      return false
+    }
     return isKnownBinaryMediaType(mediaType)
   }
 
@@ -250,7 +254,8 @@ function decodeText(buffer: Buffer, charset: string | undefined): string {
       // Unknown charset label: fall back to UTF-8
     }
   }
-  return buffer.toString("utf8")
+  // TextDecoder strips a leading UTF-8 BOM (Buffer#toString keeps it, which breaks JSON.parse)
+  return new TextDecoder("utf-8").decode(buffer)
 }
 
 function parseJsonOrText(text: string): unknown {

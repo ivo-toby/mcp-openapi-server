@@ -206,6 +206,25 @@ export class ApiClient {
   }
 
   /**
+   * How a dynamic-mode caller must pass the request body of an operation (see {@link BodyEncoding}).
+   */
+  private getSpecBodyEncoding(
+    bodyInfo: { contentType: string; schema?: OpenAPIV3.SchemaObject } | undefined,
+  ): BodyEncoding {
+    if (!bodyInfo) {
+      return undefined
+    }
+    if (isBinaryRequestBody(bodyInfo.contentType, bodyInfo.schema)) {
+      return "binary"
+    }
+    const schemaType = bodyInfo.schema?.type
+    if (schemaType && schemaType !== "object") {
+      return "wrapped"
+    }
+    return undefined
+  }
+
+  /**
    * Build the request body and Content-Type for a POST-like request.
    *
    * @param bodyParams - Tool arguments left over after path/query/header extraction
@@ -221,6 +240,12 @@ export class ApiClient {
 
     if (encoding === "binary") {
       // Issue #105: send raw bytes, not a JSON object wrapping a string
+      if (!hasBody && Object.keys(bodyParams).length > 0) {
+        throw new Error(
+          `This endpoint expects a binary request body: pass it base64-encoded in the "body" ` +
+            `parameter (got: ${Object.keys(bodyParams).join(", ")})`,
+        )
+      }
       return {
         data:
           hasBody && bodyParams.body !== undefined ? decodeBase64Body(bodyParams.body) : undefined,
@@ -237,6 +262,13 @@ export class ApiClient {
       if (mediaType && isJsonMediaType(mediaType)) {
         // Serialize ourselves so primitives like "123" are not re-interpreted by axios
         data = JSON.stringify(value)
+      } else if (
+        value !== null &&
+        typeof value === "object" &&
+        (mediaType === "application/x-www-form-urlencoded" || mediaType?.startsWith("multipart/"))
+      ) {
+        // Free-form objects: let axios serialize them for form encodings
+        data = value
       } else if (typeof value === "string") {
         data = value
       } else {
@@ -263,7 +295,7 @@ export class ApiClient {
     return decodeResponseBody(
       response.data,
       this.getHeader(response.headers, "content-type"),
-      this.getRequestUri(config),
+      this.getResponseUri(config),
     )
   }
 
@@ -282,15 +314,29 @@ export class ApiClient {
     return entry?.[1]
   }
 
-  private getRequestUri(config: Record<string, any>): string | undefined {
+  /**
+   * URI identifying a binary response for MCP embedded resources.
+   * Uses only the request path: the upstream host, credentials in the base URL
+   * and query string are never exposed to the MCP client.
+   */
+  private getResponseUri(config: Record<string, any>): string | undefined {
+    let fullUrl: string | undefined
     try {
       if (typeof (this.axiosInstance as any).getUri === "function") {
-        return this.axiosInstance.getUri(config)
+        fullUrl = this.axiosInstance.getUri(config)
       }
     } catch {
-      // Fall through to the relative URL
+      // Fall back to the relative URL below
     }
-    return typeof config.url === "string" ? config.url : undefined
+    fullUrl ??= typeof config.url === "string" ? config.url : undefined
+    if (!fullUrl) {
+      return undefined
+    }
+    try {
+      return `api-response://${new URL(fullUrl, "http://placeholder/").pathname}`
+    } catch {
+      return undefined
+    }
   }
 
   /**
@@ -705,7 +751,7 @@ export class ApiClient {
           continue
         }
 
-        operations.push({
+        const operationInfo: Record<string, any> = {
           method: method.toUpperCase(),
           operationId: op.operationId || "",
           summary: op.summary || "",
@@ -714,7 +760,24 @@ export class ApiClient {
           requestBody: op.requestBody || null,
           responses: op.responses || {},
           tags: op.tags || [],
-        })
+        }
+
+        // Tell callers how to pass non-object bodies through INVOKE-API-ENDPOINT
+        const bodyEncoding = this.getSpecBodyEncoding(this.getRequestBodyInfo(method, endpoint))
+        if (bodyEncoding === "binary") {
+          operationInfo.bodyParameter = {
+            name: "body",
+            encoding: "base64",
+            note: 'Pass the request body base64-encoded as params.body; it is sent as raw bytes.',
+          }
+        } else if (bodyEncoding === "wrapped") {
+          operationInfo.bodyParameter = {
+            name: "body",
+            note: "Pass the whole (non-object) request body as params.body.",
+          }
+        }
+
+        operations.push(operationInfo)
       }
 
       if (operations.length === 0) {
@@ -848,18 +911,13 @@ export class ApiClient {
     } else {
       // For POST-like methods, parameters go in the request body
       const bodyInfo = this.getRequestBodyInfo(method, path)
-      const schemaType = bodyInfo?.schema?.type
-      let encoding: BodyEncoding
-      if (isBinaryRequestBody(bodyInfo?.contentType, bodyInfo?.schema)) {
-        encoding = "binary"
-      } else if (
-        schemaType &&
-        schemaType !== "object" &&
-        Object.keys(params).length === 1 &&
-        Object.prototype.hasOwnProperty.call(params, "body")
+      let encoding = this.getSpecBodyEncoding(bodyInfo)
+      if (
+        encoding === "wrapped" &&
+        !(Object.keys(params).length === 1 && Object.prototype.hasOwnProperty.call(params, "body"))
       ) {
-        // Non-object body (string, array, ...) passed as { body: ... }
-        encoding = "wrapped"
+        // Only unwrap when the caller passed the non-object body as { body: ... }
+        encoding = undefined
       }
 
       if (encoding) {

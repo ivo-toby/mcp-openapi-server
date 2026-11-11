@@ -51,6 +51,17 @@ describe("Issue #105: binary request and response bodies", () => {
       expect(decodeResponseBody(Buffer.from("<svg/>"), "image/svg+xml")).toBe("<svg/>")
     })
 
+    it("parses JSON with a UTF-8 BOM", () => {
+      const bom = Buffer.from([0xef, 0xbb, 0xbf])
+      expect(
+        decodeResponseBody(Buffer.concat([bom, Buffer.from('{"a":1}')]), "application/json"),
+      ).toEqual({ a: 1 })
+      expect(decodeResponseBody(Buffer.concat([bom, Buffer.from('{"a":1}')]), undefined)).toEqual({
+        a: 1,
+      })
+      expect(decodeResponseBody(Buffer.concat([bom, Buffer.from("hi")]), "text/plain")).toBe("hi")
+    })
+
     it("sniffs unknown or missing content types losslessly", () => {
       expect(decodeResponseBody(Buffer.from('{"a":1}'), undefined)).toEqual({ a: 1 })
       expect(decodeResponseBody(Buffer.from("plain"), undefined)).toBe("plain")
@@ -73,6 +84,10 @@ describe("Issue #105: binary request and response bodies", () => {
       expect(isBinaryRequestBody("text/plain", { type: "string", format: "binary" })).toBe(true)
       expect(isBinaryRequestBody("application/pdf", {})).toBe(true)
       expect(isBinaryRequestBody("text/plain", { type: "string" })).toBe(false)
+      // springdoc emits `*/*` for `@RequestBody String`
+      expect(isBinaryRequestBody("*/*", { type: "string" })).toBe(false)
+      expect(isBinaryRequestBody("*/*", { type: "string", format: "binary" })).toBe(true)
+      expect(isBinaryRequestBody("*/*", undefined)).toBe(true)
       expect(isBinaryRequestBody("text/plain", undefined)).toBe(false)
       expect(isBinaryRequestBody("application/json", { type: "string", format: "binary" })).toBe(
         false,
@@ -231,6 +246,18 @@ describe("Issue #105: binary request and response bodies", () => {
             responses: { "200": { description: "OK" } },
           },
         },
+        "/form": {
+          post: {
+            requestBody: {
+              content: {
+                "application/x-www-form-urlencoded": {
+                  schema: { type: "object", additionalProperties: { type: "string" } },
+                },
+              },
+            },
+            responses: { "200": { description: "OK" } },
+          },
+        },
         "/ids": {
           post: {
             requestBody: {
@@ -257,7 +284,7 @@ describe("Issue #105: binary request and response bodies", () => {
             contentType: req.headers["content-type"],
             body: Buffer.concat(chunks),
           }
-          switch (req.url) {
+          switch (new URL(req.url ?? "/", "http://localhost").pathname) {
             case "/image":
               res.writeHead(200, { "Content-Type": "image/png" }).end(PNG_BYTES)
               break
@@ -307,7 +334,7 @@ describe("Issue #105: binary request and response bodies", () => {
     it("returns other binaries with the request URL as resource URI", async () => {
       const result = (await client.executeApiCall("GET::pdf", {})) as BinaryResponse
       expect(result.mimeType).toBe("application/pdf")
-      expect(result.uri).toBe(`${baseUrl}/pdf`)
+      expect(result.uri).toBe("api-response:///pdf")
       expect(result.data.equals(PNG_BYTES)).toBe(true)
     })
 
@@ -340,6 +367,48 @@ describe("Issue #105: binary request and response bodies", () => {
       await client.executeApiCall("POST::note", { body: "just text" })
       expect(lastRequest.contentType).toBe("text/plain")
       expect(lastRequest.body.toString()).toBe("just text")
+    })
+
+    it("rejects binary uploads whose payload is not in `body`", async () => {
+      await expect(
+        client.executeApiCall("POST::upload", { file: PNG_BYTES.toString("base64") }),
+      ).rejects.toThrow(/base64-encoded in the "body" parameter \(got: file\)/)
+    })
+
+    it("lets axios form-encode free-form objects for urlencoded bodies", async () => {
+      await client.executeApiCall("POST::form", { body: { a: "1", b: "two words" } })
+      expect(lastRequest.contentType).toBe("application/x-www-form-urlencoded")
+      expect(lastRequest.body.toString()).toBe("a=1&b=two+words")
+    })
+
+    it("never exposes the upstream host or credentials in the resource URI", async () => {
+      const port = (server.address() as AddressInfo).port
+      const credClient = new ApiClient(
+        `http://user:s3cret@127.0.0.1:${port}/`,
+        new StaticAuthProvider(),
+      )
+      credClient.setTools(new OpenAPISpecLoader().parseOpenAPISpec(spec))
+      const pdf = (await credClient.executeApiCall("GET::pdf", {
+        q: "secret-query",
+      })) as BinaryResponse
+      expect(pdf.uri).toBe("api-response:///pdf")
+      expect(JSON.stringify(pdf)).not.toContain("s3cret")
+      expect(JSON.stringify(pdf)).not.toContain("secret-query")
+      expect(JSON.stringify(toToolResultContent(pdf))).not.toContain("127.0.0.1")
+    })
+
+    it("documents the body convention in GET-API-ENDPOINT-SCHEMA", async () => {
+      const dynamicClient = new ApiClient(baseUrl, new StaticAuthProvider())
+      dynamicClient.setOpenApiSpec(spec)
+      const upload = await dynamicClient.executeApiCall("GET-API-ENDPOINT-SCHEMA", {
+        endpoint: "/upload",
+      })
+      expect(upload.operations[0].bodyParameter).toMatchObject({ name: "body", encoding: "base64" })
+      const note = await dynamicClient.executeApiCall("GET-API-ENDPOINT-SCHEMA", {
+        endpoint: "/note",
+      })
+      expect(note.operations[0].bodyParameter).toMatchObject({ name: "body" })
+      expect(note.operations[0].bodyParameter.encoding).toBeUndefined()
     })
 
     it("sends JSON array bodies unwrapped", async () => {

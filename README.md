@@ -956,6 +956,8 @@ The MCP server handles various OpenAPI schema complexities:
   - `image/*` → MCP `image` content
   - `audio/*` → MCP `audio` content
   - Anything else (PDF, ZIP, `application/octet-stream`, ...) → an embedded `resource` with a base64 `blob`
+- **Resource URIs** are `api-response://<request path>`: the upstream host, credentials and query string are never exposed to the MCP client.
+- **Dynamic mode**: pass non-object bodies as `params.body` (base64 for binary bodies) to `INVOKE-API-ENDPOINT`; `GET-API-ENDPOINT-SCHEMA` reports this as `bodyParameter`.
 - **Library usage**: `ApiClient.executeApiCall()` returns a `BinaryResponse` (`data: Buffer`, `mimeType`, `uri`) for binary responses.
 
 ---
