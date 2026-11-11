@@ -362,11 +362,17 @@ export class ApiClient {
         }
       } else {
         // For POST-like methods, remaining parameters go in the request body
-        config.data = Object.keys(paramsCopy).length > 0 ? paramsCopy : {}
+        config.data = this.buildRequestBody(toolDef?.inputSchema as any, paramsCopy)
 
         // Set Content-Type from OpenAPI spec metadata, defaulting to application/json
         const contentType = (toolDef?.inputSchema as any)?.["x-content-type"] || "application/json"
         config.headers["Content-Type"] = contentType
+
+        // A bare string body sent as JSON must be serialized explicitly; axios would
+        // otherwise send JSON-parseable strings (e.g. "123") unquoted
+        if (typeof config.data === "string" && /\bjson\b/i.test(contentType)) {
+          config.data = JSON.stringify(config.data)
+        }
       }
 
       // Execute the request
@@ -400,6 +406,43 @@ export class ApiClient {
       }
       throw error
     }
+  }
+
+  /**
+   * Build the request body from the remaining (non path/query/header) arguments,
+   * reversing the renames applied when the tool input schema was generated (Issue #102):
+   * - a non-object body exposed as a `body` wrapper property is sent as the bare value
+   * - body properties prefixed with `body_` due to a name collision get their original name
+   *
+   * @param inputSchema - The tool's input schema (may carry x-body-* metadata)
+   * @param params - Remaining arguments after extracting path/query/header parameters
+   * @returns The request body to send
+   */
+  private buildRequestBody(
+    inputSchema: Record<string, any> | undefined,
+    params: Record<string, any>,
+  ): any {
+    const wrapperKey = inputSchema?.["x-body-wrapper"]
+    if (
+      typeof wrapperKey === "string" &&
+      Object.prototype.hasOwnProperty.call(params, wrapperKey)
+    ) {
+      return params[wrapperKey]
+    }
+
+    const propertyMap = inputSchema?.["x-body-property-map"] as Record<string, string> | undefined
+    if (propertyMap && typeof propertyMap === "object") {
+      const body: Record<string, any> = {}
+      for (const [key, value] of Object.entries(params)) {
+        const originalName = Object.prototype.hasOwnProperty.call(propertyMap, key)
+          ? propertyMap[key]
+          : key
+        body[originalName] = value
+      }
+      return body
+    }
+
+    return Object.keys(params).length > 0 ? params : {}
   }
 
   /**

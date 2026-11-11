@@ -659,10 +659,15 @@ export class OpenAPISpecLoader {
               }
             } else if (inlinedSchema.type === "object" && inlinedSchema.properties) {
               // Handle object properties
+              const renamedBodyProps: Record<string, string> = {}
               for (const [propName, propSchema] of Object.entries(inlinedSchema.properties)) {
                 const paramName = tool.inputSchema.properties![propName]
                   ? `body_${propName}`
                   : propName
+
+                if (paramName !== propName) {
+                  renamedBodyProps[paramName] = propName
+                }
 
                 tool.inputSchema.properties![paramName] = propSchema as OpenAPIV3.SchemaObject
 
@@ -670,10 +675,20 @@ export class OpenAPISpecLoader {
                   requiredParams.push(paramName)
                 }
               }
+
+              // Record collision renames so ApiClient can restore the original body field
+              // names when building the request (Issue #102)
+              if (Object.keys(renamedBodyProps).length > 0) {
+                ;(tool.inputSchema as any)["x-body-property-map"] = renamedBodyProps
+              }
             } else {
               // Use body wrapper for other non-object schemas (primitives, arrays, etc.)
               tool.inputSchema.properties!["body"] = inlinedSchema
               requiredParams.push("body")
+
+              // Mark the wrapper so ApiClient sends the bare value as the request body,
+              // not { body: value } (Issue #102)
+              ;(tool.inputSchema as any)["x-body-wrapper"] = "body"
             }
           }
 
