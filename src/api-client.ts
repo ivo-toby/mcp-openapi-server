@@ -145,6 +145,130 @@ export class ApiClient {
     return resolvedRequestBody
   }
 
+  /**
+   * Check whether a path item has a (valid HTTP) operation, optionally for a specific method
+   */
+  private pathItemHasOperation(pathItem: OpenAPIV3.PathItemObject, method?: string): boolean {
+    if (method) {
+      const normalizedMethod = method.toLowerCase()
+      return isValidHttpMethod(normalizedMethod) && !!(pathItem as any)[normalizedMethod]
+    }
+    return VALID_HTTP_METHODS.some((m) => !!(pathItem as any)[m])
+  }
+
+  /**
+   * Resolve an endpoint supplied to a dynamic meta-tool to a path in the OpenAPI spec.
+   *
+   * Accepts either a spec path template (`/users/{id}`) or a concrete path
+   * (`/users/123`). Concrete paths are matched against the spec's path templates and the
+   * path parameter values are extracted. Literal paths win over templates, and among
+   * templates the most specific one (fewest parameters, most literal characters) wins.
+   *
+   * @param endpoint - The endpoint path supplied by the caller
+   * @param method - Optional HTTP method the resolved path must support
+   * @returns The matched spec path, its path item and the extracted path parameters
+   */
+  private resolveEndpoint(
+    endpoint: string,
+    method?: string,
+  ):
+    | { path: string; pathItem: OpenAPIV3.PathItemObject; pathParams: Record<string, string> }
+    | undefined {
+    const paths = this.openApiSpec?.paths
+    if (!paths) {
+      return undefined
+    }
+
+    const exact = paths[endpoint]
+    if (exact && this.pathItemHasOperation(exact, method)) {
+      return { path: endpoint, pathItem: exact, pathParams: {} }
+    }
+
+    const normalize = (p: string): string => (p.length > 1 ? p.replace(/\/+$/, "") : p)
+    const concrete = normalize(endpoint)
+    const candidates: Array<{
+      path: string
+      pathItem: OpenAPIV3.PathItemObject
+      pathParams: Record<string, string>
+      paramCount: number
+      literalLength: number
+    }> = []
+
+    for (const [templatePath, pathItem] of Object.entries(paths)) {
+      if (!pathItem || !templatePath.includes("{")) continue
+      if (!this.pathItemHasOperation(pathItem, method)) continue
+
+      const template = normalize(templatePath)
+      const paramNames: string[] = []
+      const pattern = template
+        .split(/(\{[^}/]+\})/)
+        .map((part) => {
+          const paramMatch = /^\{([^}/]+)\}$/.exec(part)
+          if (paramMatch) {
+            paramNames.push(paramMatch[1])
+            return "([^/]+)"
+          }
+          return part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        })
+        .join("")
+
+      const match = new RegExp(`^${pattern}$`).exec(concrete)
+      if (!match) continue
+
+      const pathParams: Record<string, string> = {}
+      paramNames.forEach((name, index) => {
+        const raw = match[index + 1]
+        try {
+          pathParams[name] = decodeURIComponent(raw)
+        } catch {
+          pathParams[name] = raw
+        }
+      })
+
+      candidates.push({
+        path: templatePath,
+        pathItem,
+        pathParams,
+        paramCount: paramNames.length,
+        literalLength: template.replace(/\{[^}/]+\}/g, "").length,
+      })
+    }
+
+    if (candidates.length > 0) {
+      candidates.sort((a, b) => a.paramCount - b.paramCount || b.literalLength - a.literalLength)
+      const { path, pathItem, pathParams } = candidates[0]
+      return { path, pathItem, pathParams }
+    }
+
+    // Keep the literal path (even without the requested method) so callers can
+    // report a precise error
+    if (exact) {
+      return { path: endpoint, pathItem: exact, pathParams: {} }
+    }
+
+    return undefined
+  }
+
+  /**
+   * Interpolate `{param}` placeholders in a spec path template using the given params.
+   * Consumed params are removed from the returned params object.
+   */
+  private interpolatePathParams(
+    path: string,
+    params: Record<string, any>,
+  ): { url: string; remainingParams: Record<string, any> } {
+    const remainingParams = { ...params }
+    const url = path.replace(/\{([^}/]+)\}/g, (_placeholder, name: string) => {
+      const value = remainingParams[name]
+      if (value === undefined || value === null || value === "") {
+        throw new Error(`Missing required path parameter '${name}' for endpoint '${path}'`)
+      }
+      delete remainingParams[name]
+      return encodeURIComponent(String(value))
+    })
+    return { url, remainingParams }
+  }
+
   private getRequestContentType(method: string, path: string): string | undefined {
     const pathItem = this.openApiSpec?.paths[path]
     const normalizedMethod = method.toLowerCase()
@@ -545,10 +669,11 @@ export class ApiClient {
 
     // If we have the OpenAPI spec, use it to get detailed schema information
     if (this.openApiSpec) {
-      const pathItem = this.openApiSpec.paths[endpoint]
-      if (!pathItem) {
+      const resolved = this.resolveEndpoint(endpoint)
+      if (!resolved) {
         throw new Error(`No endpoint found for path '${endpoint}' in tool '${toolId}'`)
       }
+      const { path: resolvedPath, pathItem } = resolved
 
       const operations: any[] = []
       for (const [method, operation] of Object.entries(pathItem)) {
@@ -581,7 +706,7 @@ export class ApiClient {
       }
 
       return {
-        path: endpoint,
+        path: resolvedPath,
         operations,
         pathParameters: pathItem.parameters || [],
       }
@@ -631,44 +756,53 @@ export class ApiClient {
 
     // If method is specified, construct the tool ID directly
     if (method) {
-      const toolId = generateToolId(method, endpoint)
+      const directToolId = generateToolId(method, endpoint)
+      if (this.toolsMap.has(directToolId)) {
+        return this.executeApiCall(directToolId, endpointParams)
+      }
 
-      // Check if this tool exists in our toolsMap or if we can derive it from the OpenAPI spec
-      if (this.toolsMap.has(toolId)) {
-        return this.executeApiCall(toolId, endpointParams)
-      } else if (this.openApiSpec) {
-        // Check if the endpoint and method exist in the OpenAPI spec
-        const pathItem = this.openApiSpec.paths[endpoint]
-        const operation = pathItem ? (pathItem as any)[method.toLowerCase()] : undefined
-        if (pathItem && operation) {
-          if (this.operationHasExcludedTag(operation)) {
-            throw new Error(
-              `Endpoint '${endpoint}' with method '${method.toUpperCase()}' is excluded by tag filter`,
-            )
-          }
+      // Resolve the endpoint against the spec; accepts templates (/users/{id}) and
+      // concrete paths (/users/123)
+      const resolved = this.resolveEndpoint(endpoint, method)
+      const operation = resolved ? (resolved.pathItem as any)[method.toLowerCase()] : undefined
 
-          // Make the HTTP request directly since we have the spec but not the tool
-          const { method: httpMethod, path } = { method: method.toUpperCase(), path: endpoint }
-          return this.makeDirectHttpRequest(httpMethod, path, endpointParams)
-        } else {
+      if (resolved && operation) {
+        // Path values taken from a concrete endpoint take precedence over params
+        const mergedParams = { ...endpointParams, ...resolved.pathParams }
+
+        const resolvedToolId = generateToolId(method, resolved.path)
+        if (this.toolsMap.has(resolvedToolId)) {
+          return this.executeApiCall(resolvedToolId, mergedParams)
+        }
+
+        if (this.operationHasExcludedTag(operation)) {
           throw new Error(
-            `No endpoint found for path '${endpoint}' with method '${method}' in tool '${toolId}'`,
+            `Endpoint '${endpoint}' with method '${method.toUpperCase()}' is excluded by tag filter`,
           )
         }
-      } else {
-        throw new Error(`Tool not found: ${toolId}`)
+
+        // Make the HTTP request directly since we have the spec but not the tool
+        return this.makeDirectHttpRequest(method.toUpperCase(), resolved.path, mergedParams)
       }
+
+      if (this.openApiSpec) {
+        throw new Error(
+          `No endpoint found for path '${endpoint}' with method '${method}' in tool '${directToolId}'`,
+        )
+      }
+      throw new Error(`Tool not found: ${directToolId}`)
     }
 
     // If no method is specified, try to find the first available method for this endpoint
     if (this.openApiSpec) {
-      const pathItem = this.openApiSpec.paths[endpoint]
-      if (pathItem) {
+      const resolved = this.resolveEndpoint(endpoint)
+      if (resolved) {
+        const mergedParams = { ...endpointParams, ...resolved.pathParams }
         // Find the first available HTTP method for this path
         for (const method of VALID_HTTP_METHODS) {
-          const operation = (pathItem as any)[method]
+          const operation = (resolved.pathItem as any)[method]
           if (operation && !this.operationHasExcludedTag(operation)) {
-            return this.makeDirectHttpRequest(method.toUpperCase(), endpoint, endpointParams)
+            return this.makeDirectHttpRequest(method.toUpperCase(), resolved.path, mergedParams)
           }
         }
         throw new Error(`No HTTP operations found for endpoint '${endpoint}' in tool '${toolId}'`)
@@ -684,19 +818,26 @@ export class ApiClient {
   /**
    * Make a direct HTTP request without going through the tool system
    * Used by dynamic meta-tools when we have OpenAPI spec but no corresponding tool
+   *
+   * @param method - HTTP method
+   * @param path - Spec path template; `{param}` placeholders are filled from params
+   * @param params - Request parameters; path parameters are consumed, the rest go to
+   *   the query string (GET-like) or request body
    */
   private async makeDirectHttpRequest(
     method: string,
     path: string,
-    params: Record<string, any>,
+    allParams: Record<string, any>,
   ): Promise<any> {
+    const { url, remainingParams: params } = this.interpolatePathParams(path, allParams)
+
     // Get fresh authentication headers
     const authHeaders = await this.authProvider.getAuthHeaders()
 
     // Prepare request configuration
     const config: any = {
       method: method.toLowerCase(),
-      url: path,
+      url,
       headers: { ...authHeaders },
     }
 
