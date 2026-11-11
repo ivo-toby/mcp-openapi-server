@@ -967,7 +967,10 @@ describe("OpenAPIServer", () => {
       expect(https.Agent).toHaveBeenCalledTimes(1)
       const agent = vi.mocked(https.Agent).mock.results[0].value
       expect(agent).toBeDefined()
-      expect(ToolsManager).toHaveBeenLastCalledWith(mtlsConfig, { httpsAgent: agent })
+      expect(ToolsManager).toHaveBeenLastCalledWith(
+        mtlsConfig,
+        expect.objectContaining({ httpsAgent: agent }),
+      )
       const apiClientOptions = vi.mocked(ApiClient).mock.lastCall?.[3]
       expect(apiClientOptions?.httpsAgent).toBe(agent)
     })
@@ -975,7 +978,36 @@ describe("OpenAPIServer", () => {
     it("should not pass an HTTPS agent to the spec loader without TLS settings", () => {
       new OpenAPIServer(config)
 
-      expect(ToolsManager).toHaveBeenLastCalledWith(config, { httpsAgent: undefined })
+      expect(ToolsManager).toHaveBeenLastCalledWith(
+        config,
+        expect.objectContaining({ httpsAgent: undefined }),
+      )
+    })
+
+    it("Issue #110: should pass the same auth provider to the spec loader and the API client", () => {
+      const authProvider: AuthProvider = {
+        getAuthHeaders: vi.fn().mockResolvedValue({ Authorization: "Bearer dynamic" }),
+        handleAuthError: vi.fn().mockResolvedValue(false),
+      }
+      const authConfig: OpenAPIMCPServerConfig = { ...config, authProvider }
+
+      new OpenAPIServer(authConfig)
+
+      expect(ToolsManager).toHaveBeenLastCalledWith(
+        authConfig,
+        expect.objectContaining({ authProvider }),
+      )
+      expect(vi.mocked(ApiClient).mock.lastCall?.[1]).toBe(authProvider)
+    })
+
+    it("Issue #110: should pass a static-header auth provider to the spec loader", async () => {
+      new OpenAPIServer(config)
+
+      const options = vi.mocked(ToolsManager).mock.lastCall?.[1]
+      expect(options?.authProvider).toBeDefined()
+      await expect(options?.authProvider?.getAuthHeaders()).resolves.toEqual({
+        Authorization: "Bearer token",
+      })
     })
 
     it("should create an HTTPS agent when only TLS verification override is set", () => {

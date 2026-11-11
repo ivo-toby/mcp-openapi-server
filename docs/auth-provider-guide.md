@@ -140,7 +140,10 @@ When the API returns 401 or 403 errors, `handleAuthError()` is called, allowing 
 ### 3. Automatic Retry Logic
 If `handleAuthError()` returns `true`, the request is automatically retried with fresh headers from `getAuthHeaders()`. The retry only happens once to prevent infinite loops.
 
-### 4. Backward Compatibility
+### 4. Authenticated Spec Loading
+When `--openapi-spec` is a URL on the same origin as `apiBaseUrl`, the spec request uses the same `AuthProvider`. `getAuthHeaders()` is called for it, and on a 401/403 `handleAuthError()` gets an `AxiosError` and the request is retried once if it returns `true`. Set `specAuth` (`--spec-auth` / `SPEC_AUTH`) to `"never"` to keep spec requests unauthenticated, or `"always"` to also authenticate a spec on another origin. Redirects to a different origin never carry auth headers. If `getAuthHeaders()` throws while loading the spec (for example because no token is set yet), the spec request goes out unauthenticated with a warning, so a public spec still loads and API calls keep the throw-until-configured behaviour.
+
+### 5. Backward Compatibility
 Existing code using static headers continues to work unchanged. The system internally creates a `StaticAuthProvider` when headers are provided without an `AuthProvider`.
 
 ## Example: Manual Token Updates

@@ -106,6 +106,7 @@ describe("loadConfig", () => {
     delete process.env.REJECT_UNAUTHORIZED
     delete process.env.VERBOSE
     delete process.env.SERVER_INSTRUCTIONS
+    delete process.env.SPEC_AUTH
 
     // Reset mocks before each test
     vi.clearAllMocks()
@@ -684,6 +685,83 @@ describe("loadConfig", () => {
 
     const config = loadConfig()
     expect(config.rejectUnauthorized).toBe(false)
+  })
+
+  describe("Issue #110: spec auth mode", () => {
+    const mockYargs = (args: Record<string, unknown>) => {
+      vi.doMock("yargs", () => ({
+        default: vi.fn().mockReturnValue({
+          option: vi.fn().mockReturnThis(),
+          help: vi.fn().mockReturnThis(),
+          version: vi.fn().mockReturnThis(),
+          strictOptions: vi.fn().mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
+          parseSync: vi.fn().mockReturnValue({
+            "api-base-url": "https://api.example.com",
+            "openapi-spec": "./spec.json",
+            ...args,
+          }),
+        }),
+      }))
+      vi.doMock("yargs/helpers", () => ({
+        hideBin: vi.fn((arr) => arr),
+      }))
+    }
+
+    it("should leave specAuth unset by default", async () => {
+      mockYargs({})
+      const { loadConfig } = await import("../src/config")
+
+      expect(loadConfig().specAuth).toBeUndefined()
+    })
+
+    it("should read --spec-auth from the command line, case-insensitively", async () => {
+      mockYargs({ "spec-auth": "Always" })
+      const { loadConfig } = await import("../src/config")
+
+      expect(loadConfig().specAuth).toBe("always")
+    })
+
+    it("should read SPEC_AUTH from the environment", async () => {
+      mockYargs({})
+      process.env.SPEC_AUTH = "never"
+      const { loadConfig } = await import("../src/config")
+
+      expect(loadConfig().specAuth).toBe("never")
+    })
+
+    it("should prefer --spec-auth over SPEC_AUTH", async () => {
+      mockYargs({ "spec-auth": "same-origin" })
+      process.env.SPEC_AUTH = "always"
+      const { loadConfig } = await import("../src/config")
+
+      expect(loadConfig().specAuth).toBe("same-origin")
+    })
+
+    it("should reject a repeated --spec-auth instead of falling back to the default", async () => {
+      mockYargs({ "spec-auth": ["never", "never"] })
+      const { loadConfig } = await import("../src/config")
+
+      expect(() => loadConfig()).toThrow("--spec-auth may only be given once")
+    })
+
+    it("should reject --no-spec-auth with the invalid-mode error", async () => {
+      mockYargs({ "spec-auth": false })
+      const { loadConfig } = await import("../src/config")
+
+      expect(() => loadConfig()).toThrow(
+        "Invalid spec auth mode. Expected one of: same-origin, always, never",
+      )
+    })
+
+    it("should reject an invalid spec auth mode", async () => {
+      mockYargs({ "spec-auth": "sometimes" })
+      const { loadConfig } = await import("../src/config")
+
+      expect(() => loadConfig()).toThrow(
+        "Invalid spec auth mode. Expected one of: same-origin, always, never",
+      )
+    })
   })
 
   it("should load mTLS options from environment variables", async () => {

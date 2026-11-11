@@ -1,6 +1,7 @@
 import { Tool } from "@modelcontextprotocol/sdk/types.js"
 import type { Agent as HttpsAgent } from "node:https"
 import { OpenAPISpecLoader, ExtendedTool } from "./openapi-loader"
+import { AuthProvider, StaticAuthProvider } from "./auth-provider.js"
 import { OpenAPIMCPServerConfig } from "./config"
 import { OpenAPIV3 } from "openapi-types"
 import { parseToolId as parseToolIdUtil } from "./utils/tool-id.js"
@@ -17,7 +18,7 @@ export class ToolsManager {
 
   constructor(
     private config: OpenAPIMCPServerConfig,
-    options?: { httpsAgent?: HttpsAgent },
+    options?: { httpsAgent?: HttpsAgent; authProvider?: AuthProvider },
   ) {
     // Ensure toolsMode has a default value of 'all'
     this.config.toolsMode = this.config.toolsMode || "all"
@@ -27,8 +28,26 @@ export class ToolsManager {
       httpsAgent: options?.httpsAgent,
       // TLS settings are configured for the API; only use them for a spec on the API's origin
       httpsAgentScope: this.config.apiBaseUrl,
+      // Auth headers follow the same rule by default (see specAuth)
+      authProvider: options?.authProvider ?? this.resolveAuthProvider(),
+      specAuth: this.config.specAuth,
+      authScope: this.config.apiBaseUrl,
     })
     this.logger = new Logger(this.config.verbose)
+  }
+
+  /**
+   * Auth provider for spec requests when none is passed explicitly: the configured
+   * AuthProvider, or the static headers
+   */
+  private resolveAuthProvider(): AuthProvider | undefined {
+    if (this.config.authProvider) {
+      return this.config.authProvider
+    }
+    if (this.config.headers && Object.keys(this.config.headers).length > 0) {
+      return new StaticAuthProvider(this.config.headers)
+    }
+    return undefined
   }
 
   private toolHasMatchingTag(tool: ExtendedTool, tagsLower: string[]): boolean {
