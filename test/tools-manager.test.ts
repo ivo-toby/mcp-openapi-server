@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest"
 import { ToolsManager } from "../src/tools-manager"
 import { OpenAPISpecLoader, ExtendedTool } from "../src/openapi-loader"
 import { Tool } from "@modelcontextprotocol/sdk/types.js"
+import type { OpenAPIV3 } from "openapi-types"
 import { parseToolId as parseToolIdUtil } from "../src/utils/tool-id.js"
 
 // Mock dependencies
@@ -1011,6 +1012,37 @@ describe("ToolsManager", () => {
         method: "GET",
         path: "/api/v1/users/id/profile",
       })
+    })
+  })
+
+  describe("Issue #103: colliding generated names", () => {
+    it("should list unique names and route each name to its own operation", async () => {
+      const { OpenAPISpecLoader: RealLoader } =
+        await vi.importActual<typeof import("../src/openapi-loader")>("../src/openapi-loader")
+      const spec: OpenAPIV3.Document = {
+        openapi: "3.0.3",
+        info: { title: "t", version: "1" },
+        paths: {
+          "/t/consume": {
+            post: { summary: "检查并消耗 Ticket", responses: { "200": { description: "ok" } } },
+          },
+          "/t/verify": {
+            post: { summary: "验证 Ticket", responses: { "200": { description: "ok" } } },
+          },
+        },
+      }
+      const realTools = new RealLoader({ verbose: false }).parseOpenAPISpec(spec)
+      mockSpecLoader.loadOpenAPISpec.mockResolvedValue(spec)
+      mockSpecLoader.parseOpenAPISpec.mockReturnValue(realTools)
+
+      await toolsManager.initialize()
+
+      const names = toolsManager.getAllTools().map((t) => t.name)
+      expect(names).toHaveLength(2)
+      expect(new Set(names).size).toBe(2)
+
+      const ids = names.map((name) => toolsManager.findTool(name)?.toolId)
+      expect(ids.sort()).toEqual(["POST::t__consume", "POST::t__verify"])
     })
   })
 })

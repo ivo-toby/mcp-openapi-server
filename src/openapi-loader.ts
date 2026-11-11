@@ -30,6 +30,25 @@ export interface ExtendedTool extends Tool {
  */
 export type SpecInputMethod = "url" | "file" | "stdin" | "inline"
 
+const hasOwn = (obj: object, key: string): boolean => Object.prototype.hasOwnProperty.call(obj, key)
+
+/**
+ * Pick a `body_`-prefixed input name for a request-body field that collides with an
+ * existing input. Keeps prefixing until the name is free in both the tool's inputs and
+ * the body's own property names, so a genuine `body_<name>` body field is never overwritten.
+ */
+function uniqueBodyParamName(
+  name: string,
+  existing: Record<string, unknown>,
+  bodyPropNames: Set<string>,
+): string {
+  let candidate = `body_${name}`
+  while (hasOwn(existing, candidate) || bodyPropNames.has(candidate)) {
+    candidate = `body_${candidate}`
+  }
+  return candidate
+}
+
 /**
  * Options for the OpenAPI spec loader
  */
@@ -558,6 +577,8 @@ export class OpenAPISpecLoader {
    */
   parseOpenAPISpec(spec: OpenAPIV3.Document): Map<string, Tool> {
     const tools = new Map<string, Tool>()
+    // Lowercased tool names already assigned, used to keep names unique (Issue #103)
+    const usedNames = new Set<string>()
 
     // Convert each OpenAPI path to an MCP tool
     for (const [path, pathItem] of Object.entries(spec.paths)) {
@@ -621,7 +642,11 @@ export class OpenAPISpecLoader {
         const toolId = generateToolId(method, path)
 
         const nameSource = op.operationId || op.summary || `${method.toUpperCase()} ${path}`
-        const name = this.abbreviateOperationId(nameSource)
+        const name = this.ensureUniqueToolName(
+          this.abbreviateOperationId(nameSource),
+          toolId,
+          usedNames,
+        )
 
         const tool: ExtendedTool = {
           name,
@@ -814,10 +839,16 @@ export class OpenAPISpecLoader {
               }
             } else if (inlinedSchema.type === "object" && inlinedSchema.properties) {
               // Handle object properties
+              const renamedBodyProps: Record<string, string> = {}
+              const bodyPropNames = new Set(Object.keys(inlinedSchema.properties))
               for (const [propName, propSchema] of Object.entries(inlinedSchema.properties)) {
-                const paramName = tool.inputSchema.properties![propName]
-                  ? `body_${propName}`
+                const paramName = hasOwn(tool.inputSchema.properties!, propName)
+                  ? uniqueBodyParamName(propName, tool.inputSchema.properties!, bodyPropNames)
                   : propName
+
+                if (paramName !== propName) {
+                  renamedBodyProps[paramName] = propName
+                }
 
                 tool.inputSchema.properties![paramName] = propSchema as OpenAPIV3.SchemaObject
 
@@ -825,10 +856,24 @@ export class OpenAPISpecLoader {
                   requiredParams.push(paramName)
                 }
               }
+
+              // Record collision renames so ApiClient can restore the original body field
+              // names when building the request (Issue #102)
+              if (Object.keys(renamedBodyProps).length > 0) {
+                ;(tool.inputSchema as any)["x-body-property-map"] = renamedBodyProps
+              }
             } else {
-              // Use body wrapper for other non-object schemas (primitives, arrays, etc.)
-              tool.inputSchema.properties!["body"] = inlinedSchema
-              requiredParams.push("body")
+              // Use body wrapper for other non-object schemas (primitives, arrays, etc.).
+              // Avoid clobbering a parameter that is itself named "body".
+              const wrapperName = hasOwn(tool.inputSchema.properties!, "body")
+                ? uniqueBodyParamName("body", tool.inputSchema.properties!, new Set())
+                : "body"
+              tool.inputSchema.properties![wrapperName] = inlinedSchema
+              requiredParams.push(wrapperName)
+
+              // Mark the wrapper so ApiClient sends the bare value as the request body,
+              // not { body: value } (Issue #102)
+              ;(tool.inputSchema as any)["x-body-wrapper"] = wrapperName
             }
           }
 
@@ -848,6 +893,45 @@ export class OpenAPISpecLoader {
     }
 
     return tools
+  }
+
+  /**
+   * Make sure a generated tool name is unique within the server (Issue #103).
+   *
+   * Different operations can reduce to the same name (e.g. summaries that only differ
+   * in non-ASCII characters that get sanitized away). The first operation in spec order
+   * keeps the base name; later ones get a suffix derived from the tool ID (method + path).
+   *
+   * Note: only the suffix value is deterministic per method + path. Which operation keeps
+   * the bare name depends on spec order, so reordering or inserting colliding operations
+   * can change names. Tool IDs or explicit operationIds are the stable way to reference tools.
+   */
+  private ensureUniqueToolName(baseName: string, toolId: string, usedNames: Set<string>): string {
+    const maxLength = this.disableAbbreviation ? Number.MAX_SAFE_INTEGER : 64
+    const withSuffix = (suffix: string): string => {
+      const maxBaseLength = maxLength - suffix.length - 1
+      const trimmedBase =
+        baseName.length > maxBaseLength
+          ? baseName.substring(0, maxBaseLength).replace(/-+$/, "")
+          : baseName
+      return `${trimmedBase}-${suffix}`
+    }
+
+    let candidate = baseName
+    if (usedNames.has(candidate.toLowerCase())) {
+      const hash = this.generateShortHash(toolId, 4)
+      candidate = withSuffix(hash)
+      let counter = 2
+      while (usedNames.has(candidate.toLowerCase())) {
+        candidate = withSuffix(`${hash}-${counter++}`)
+      }
+      this.logger.warn(
+        `Tool name "${baseName}" for ${toolId} is already in use; using "${candidate}" instead`,
+      )
+    }
+
+    usedNames.add(candidate.toLowerCase())
+    return candidate
   }
 
   // Helper function to generate a simple hash
