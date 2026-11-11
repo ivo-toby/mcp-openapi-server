@@ -67,7 +67,11 @@ export class ToolsManager {
       inputSchema: {
         type: "object",
         properties: {
-          endpoint: { type: "string", description: "Endpoint path (e.g. /users/{id})" },
+          endpoint: {
+            type: "string",
+            description:
+              "Endpoint path, as a template (e.g. /users/{id}) or concrete (e.g. /users/123)",
+          },
         },
         required: ["endpoint"],
       },
@@ -80,7 +84,11 @@ export class ToolsManager {
       inputSchema: {
         type: "object",
         properties: {
-          endpoint: { type: "string", description: "Endpoint path to invoke (e.g. /users/{id})" },
+          endpoint: {
+            type: "string",
+            description:
+              "Endpoint path to invoke, either a template with path parameters supplied in params (e.g. /users/{id}) or a concrete path (e.g. /users/123)",
+          },
           method: {
             type: "string",
             description: "HTTP method to use (optional, e.g. GET, POST, PUT, DELETE)",

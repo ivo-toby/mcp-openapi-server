@@ -26,6 +26,50 @@ const SYSTEM_CONTROLLED_HEADERS = new Set([
 ])
 
 /**
+ * Reject resolved request paths containing dot segments (`.` / `..`).
+ * HTTP clients normalise these away, which would send the request to a different
+ * endpoint than the one that was matched (and e.g. tag-filtered).
+ */
+function assertNoDotSegments(path: string): void {
+  const hasDotSegment = path.split("/").some((segment) => {
+    let decoded = segment
+    try {
+      decoded = decodeURIComponent(segment)
+    } catch {
+      // keep raw segment
+    }
+    return decoded === "." || decoded === ".."
+  })
+  if (hasDotSegment) {
+    throw new Error(
+      `Invalid request path '${path}': path parameters must not resolve to '.' or '..' segments`,
+    )
+  }
+}
+
+/**
+ * Split an endpoint supplied to a dynamic meta-tool into its path and query parameters.
+ * A fragment (`#...`) is dropped.
+ */
+function splitEndpoint(endpoint: string): { path: string; query: Record<string, any> } {
+  const withoutFragment = endpoint.split("#", 1)[0]
+  const queryIndex = withoutFragment.indexOf("?")
+  if (queryIndex === -1) {
+    return { path: withoutFragment, query: {} }
+  }
+
+  const query: Record<string, any> = {}
+  for (const [key, value] of new URLSearchParams(withoutFragment.slice(queryIndex + 1))) {
+    if (Object.hasOwn(query, key)) {
+      query[key] = Array.isArray(query[key]) ? [...query[key], value] : [query[key], value]
+    } else {
+      query[key] = value
+    }
+  }
+  return { path: withoutFragment.slice(0, queryIndex), query }
+}
+
+/**
  * Client for making API calls to the backend service
  */
 export class ApiClient {
@@ -143,6 +187,173 @@ export class ApiClient {
     }
 
     return resolvedRequestBody
+  }
+
+  /**
+   * Check whether a path item has a (valid HTTP) operation, optionally for a specific method
+   */
+  private pathItemHasOperation(pathItem: OpenAPIV3.PathItemObject, method?: string): boolean {
+    if (method) {
+      const normalizedMethod = method.toLowerCase()
+      return isValidHttpMethod(normalizedMethod) && !!(pathItem as any)[normalizedMethod]
+    }
+    return VALID_HTTP_METHODS.some((m) => !!(pathItem as any)[m])
+  }
+
+  /**
+   * Resolve an endpoint supplied to a dynamic meta-tool to a path in the OpenAPI spec.
+   *
+   * Accepts either a spec path template (`/users/{id}`) or a concrete path
+   * (`/users/123`). Concrete paths are matched against the spec's path templates and the
+   * path parameter values are extracted. Literal paths win over templates, and among
+   * templates the most specific one (fewest parameters, most literal characters) wins.
+   *
+   * @param endpoint - The endpoint path supplied by the caller
+   * @param method - Optional HTTP method the resolved path must support
+   * Segments of the endpoint that are themselves placeholders (e.g. a partially filled
+   * `/users/123/posts/{postId}`) are not treated as values; they are reported in
+   * `placeholderNames` (template name -> name used by the caller) so the value can be
+   * taken from the caller's params.
+   *
+   * @returns The matched spec path, its path item and the extracted path parameters
+   */
+  private resolveEndpoint(endpoint: string, method?: string): ResolvedEndpoint | undefined {
+    const paths = this.openApiSpec?.paths
+    if (!paths) {
+      return undefined
+    }
+
+    const normalize = (p: string): string => {
+      const withLeadingSlash = p.startsWith("/") ? p : `/${p}`
+      return withLeadingSlash.length > 1 ? withLeadingSlash.replace(/\/+$/, "") || "/" : "/"
+    }
+    const concrete = normalize(endpoint)
+
+    const exactPath = paths[endpoint] ? endpoint : paths[concrete] ? concrete : undefined
+    const exact = exactPath ? paths[exactPath] : undefined
+    if (exactPath && exact && this.pathItemHasOperation(exact, method)) {
+      return { path: exactPath, pathItem: exact, pathParams: {}, placeholderNames: {} }
+    }
+
+    const candidates: Array<
+      ResolvedEndpoint & {
+        paramCount: number
+        literalLength: number
+      }
+    > = []
+
+    for (const [templatePath, pathItem] of Object.entries(paths)) {
+      if (!pathItem || !templatePath.includes("{")) continue
+      if (!this.pathItemHasOperation(pathItem, method)) continue
+
+      const template = normalize(templatePath)
+      const paramNames: string[] = []
+      const pattern = template
+        .split(/(\{[^}/]+\})/)
+        .map((part) => {
+          const paramMatch = /^\{([^}/]+)\}$/.exec(part)
+          if (paramMatch) {
+            paramNames.push(paramMatch[1])
+            return "([^/]+)"
+          }
+          return part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        })
+        .join("")
+
+      const match = new RegExp(`^${pattern}$`).exec(concrete)
+      if (!match) continue
+
+      const pathParams: Record<string, string> = {}
+      const placeholderNames: Record<string, string> = {}
+      paramNames.forEach((name, index) => {
+        const raw = match[index + 1]
+        const placeholder = /^\{([^{}/]+)\}$/.exec(raw)
+        if (placeholder) {
+          placeholderNames[name] = placeholder[1]
+          return
+        }
+        try {
+          pathParams[name] = decodeURIComponent(raw)
+        } catch {
+          pathParams[name] = raw
+        }
+      })
+
+      candidates.push({
+        path: templatePath,
+        pathItem,
+        pathParams,
+        placeholderNames,
+        paramCount: paramNames.length,
+        literalLength: template.replace(/\{[^}/]+\}/g, "").length,
+      })
+    }
+
+    if (candidates.length > 0) {
+      candidates.sort((a, b) => a.paramCount - b.paramCount || b.literalLength - a.literalLength)
+      const { path, pathItem, pathParams, placeholderNames } = candidates[0]
+      return { path, pathItem, pathParams, placeholderNames }
+    }
+
+    // Keep the literal path (even without the requested method) so callers can
+    // report a precise error
+    if (exactPath && exact) {
+      return { path: exactPath, pathItem: exact, pathParams: {}, placeholderNames: {} }
+    }
+
+    return undefined
+  }
+
+  /**
+   * Interpolate `{param}` placeholders in a spec path template using the given params.
+   * Consumed params are removed from the returned params object.
+   */
+  private interpolatePathParams(
+    path: string,
+    params: Record<string, any>,
+  ): { url: string; remainingParams: Record<string, any> } {
+    const remainingParams = { ...params }
+    const url = path.replace(/\{([^}/]+)\}/g, (_placeholder, name: string) => {
+      const value = Object.hasOwn(remainingParams, name) ? remainingParams[name] : undefined
+      if (value === undefined || value === null || value === "") {
+        throw new Error(`Missing required path parameter '${name}' for endpoint '${path}'`)
+      }
+      delete remainingParams[name]
+      return encodeURIComponent(String(value))
+    })
+    assertNoDotSegments(url)
+    return { url, remainingParams }
+  }
+
+  /**
+   * Build the params for a request to a resolved endpoint: query string from the
+   * endpoint, then caller params, then path values extracted from a concrete endpoint.
+   *
+   * Query string values may fill path placeholders; any that remain are sent as query
+   * parameters for every method (see `makeDirectHttpRequest`).
+   */
+  private buildEndpointParams(
+    resolved: ResolvedEndpoint,
+    query: Record<string, any>,
+    endpointParams: Record<string, any>,
+  ): Record<string, any> {
+    const merged: Record<string, any> = { ...query, ...endpointParams }
+
+    // Map placeholders the caller left in the endpoint under a different name
+    // (e.g. `/users/{user_id}` for spec `/users/{id}`) onto the spec's name
+    for (const [templateName, callerName] of Object.entries(resolved.placeholderNames)) {
+      if (
+        callerName !== templateName &&
+        Object.hasOwn(merged, callerName) &&
+        !Object.hasOwn(merged, templateName)
+      ) {
+        merged[templateName] = merged[callerName]
+        delete merged[callerName]
+      }
+    }
+
+    // Path values taken from a concrete endpoint take precedence over params
+    return { ...merged, ...resolved.pathParams }
   }
 
   private getRequestContentType(method: string, path: string): string | undefined {
@@ -321,6 +532,8 @@ export class ApiClient {
           }
         }
       }
+
+      assertNoDotSegments(resolvedPath)
 
       // Get fresh authentication headers
       const authHeaders = await this.authProvider.getAuthHeaders()
@@ -602,10 +815,11 @@ export class ApiClient {
 
     // If we have the OpenAPI spec, use it to get detailed schema information
     if (this.openApiSpec) {
-      const pathItem = this.openApiSpec.paths[endpoint]
-      if (!pathItem) {
+      const resolved = this.resolveEndpoint(splitEndpoint(String(endpoint)).path)
+      if (!resolved) {
         throw new Error(`No endpoint found for path '${endpoint}' in tool '${toolId}'`)
       }
+      const { path: resolvedPath, pathItem } = resolved
 
       const operations: any[] = []
       for (const [method, operation] of Object.entries(pathItem)) {
@@ -638,7 +852,7 @@ export class ApiClient {
       }
 
       return {
-        path: endpoint,
+        path: resolvedPath,
         operations,
         pathParameters: pathItem.parameters || [],
       }
@@ -676,6 +890,22 @@ export class ApiClient {
   }
 
   /**
+   * Keys whose value came from the endpoint's query string (not overridden by explicit
+   * params or path values), so they stay in the query string for body methods.
+   */
+  private endpointQueryKeys(
+    query: Record<string, any>,
+    endpointParams: Record<string, any>,
+    resolved: ResolvedEndpoint,
+  ): Set<string> {
+    return new Set(
+      Object.keys(query).filter(
+        (key) => !Object.hasOwn(endpointParams, key) && !Object.hasOwn(resolved.pathParams, key),
+      ),
+    )
+  }
+
+  /**
    * Handle the INVOKE-API-ENDPOINT meta-tool
    * Dynamically invokes an API endpoint with the provided parameters
    */
@@ -686,46 +916,72 @@ export class ApiClient {
       throw new Error(`Missing required parameter 'endpoint' for tool '${toolId}'`)
     }
 
+    // Accept a query string on the endpoint (e.g. /users/123?verbose=true); explicit
+    // params win over it
+    const { path: endpointPath, query } = splitEndpoint(String(endpoint))
+
     // If method is specified, construct the tool ID directly
     if (method) {
-      const toolId = generateToolId(method, endpoint)
+      if (typeof method !== "string" || !isValidHttpMethod(method)) {
+        throw new Error(`Invalid HTTP method '${method}' for tool '${toolId}'`)
+      }
 
-      // Check if this tool exists in our toolsMap or if we can derive it from the OpenAPI spec
-      if (this.toolsMap.has(toolId)) {
-        return this.executeApiCall(toolId, endpointParams)
-      } else if (this.openApiSpec) {
-        // Check if the endpoint and method exist in the OpenAPI spec
-        const pathItem = this.openApiSpec.paths[endpoint]
-        const operation = pathItem ? (pathItem as any)[method.toLowerCase()] : undefined
-        if (pathItem && operation) {
-          if (this.operationHasExcludedTag(operation)) {
-            throw new Error(
-              `Endpoint '${endpoint}' with method '${method.toUpperCase()}' is excluded by tag filter`,
-            )
-          }
+      const directToolId = generateToolId(method, endpointPath)
+      if (this.toolsMap.has(directToolId)) {
+        return this.executeApiCall(directToolId, { ...query, ...endpointParams })
+      }
 
-          // Make the HTTP request directly since we have the spec but not the tool
-          const { method: httpMethod, path } = { method: method.toUpperCase(), path: endpoint }
-          return this.makeDirectHttpRequest(httpMethod, path, endpointParams)
-        } else {
+      // Resolve the endpoint against the spec; accepts templates (/users/{id}) and
+      // concrete paths (/users/123)
+      const resolved = this.resolveEndpoint(endpointPath, method)
+      const operation = resolved ? (resolved.pathItem as any)[method.toLowerCase()] : undefined
+
+      if (resolved && operation) {
+        const mergedParams = this.buildEndpointParams(resolved, query, endpointParams)
+
+        const resolvedToolId = generateToolId(method, resolved.path)
+        if (this.toolsMap.has(resolvedToolId)) {
+          return this.executeApiCall(resolvedToolId, mergedParams)
+        }
+
+        if (this.operationHasExcludedTag(operation)) {
           throw new Error(
-            `No endpoint found for path '${endpoint}' with method '${method}' in tool '${toolId}'`,
+            `Endpoint '${endpoint}' with method '${method.toUpperCase()}' is excluded by tag filter`,
           )
         }
-      } else {
-        throw new Error(`Tool not found: ${toolId}`)
+
+        // Make the HTTP request directly since we have the spec but not the tool
+        return this.makeDirectHttpRequest(
+          method.toUpperCase(),
+          resolved.path,
+          mergedParams,
+          this.endpointQueryKeys(query, endpointParams, resolved),
+        )
       }
+
+      if (this.openApiSpec) {
+        throw new Error(
+          `No endpoint found for path '${endpoint}' with method '${method}' in tool '${directToolId}'`,
+        )
+      }
+      throw new Error(`Tool not found: ${directToolId}`)
     }
 
     // If no method is specified, try to find the first available method for this endpoint
     if (this.openApiSpec) {
-      const pathItem = this.openApiSpec.paths[endpoint]
-      if (pathItem) {
+      const resolved = this.resolveEndpoint(endpointPath)
+      if (resolved) {
+        const mergedParams = this.buildEndpointParams(resolved, query, endpointParams)
         // Find the first available HTTP method for this path
         for (const method of VALID_HTTP_METHODS) {
-          const operation = (pathItem as any)[method]
+          const operation = (resolved.pathItem as any)[method]
           if (operation && !this.operationHasExcludedTag(operation)) {
-            return this.makeDirectHttpRequest(method.toUpperCase(), endpoint, endpointParams)
+            return this.makeDirectHttpRequest(
+              method.toUpperCase(),
+              resolved.path,
+              mergedParams,
+              this.endpointQueryKeys(query, endpointParams, resolved),
+            )
           }
         }
         throw new Error(`No HTTP operations found for endpoint '${endpoint}' in tool '${toolId}'`)
@@ -741,19 +997,29 @@ export class ApiClient {
   /**
    * Make a direct HTTP request without going through the tool system
    * Used by dynamic meta-tools when we have OpenAPI spec but no corresponding tool
+   *
+   * @param method - HTTP method
+   * @param path - Spec path template; `{param}` placeholders are filled from params
+   * @param params - Request parameters; path parameters are consumed, the rest go to
+   *   the query string (GET-like) or request body
+   * @param queryKeys - Keys that came from the endpoint's query string; these always go
+   *   to the query string, also for body methods
    */
   private async makeDirectHttpRequest(
     method: string,
     path: string,
-    params: Record<string, any>,
+    allParams: Record<string, any>,
+    queryKeys: Set<string> = new Set(),
   ): Promise<any> {
+    const { url, remainingParams: params } = this.interpolatePathParams(path, allParams)
+
     // Get fresh authentication headers
     const authHeaders = await this.authProvider.getAuthHeaders()
 
     // Prepare request configuration
     const config: any = {
       method: method.toLowerCase(),
-      url: path,
+      url,
       headers: { ...authHeaders },
     }
 
@@ -762,8 +1028,21 @@ export class ApiClient {
       // For GET-like methods, parameters go in the query string
       config.params = this.processQueryParams(params)
     } else {
-      // For POST-like methods, parameters go in the request body
-      config.data = params
+      // For POST-like methods, parameters go in the request body, except those the
+      // caller put in the endpoint's query string
+      const queryParams: Record<string, any> = {}
+      const bodyParams: Record<string, any> = {}
+      for (const [key, value] of Object.entries(params)) {
+        if (queryKeys.has(key)) {
+          queryParams[key] = value
+        } else {
+          bodyParams[key] = value
+        }
+      }
+      if (Object.keys(queryParams).length > 0) {
+        config.params = this.processQueryParams(queryParams)
+      }
+      config.data = bodyParams
       config.headers["Content-Type"] =
         this.getRequestContentType(method, path) || "application/json"
     }
@@ -789,6 +1068,13 @@ export class ApiClient {
       throw error
     }
   }
+}
+
+interface ResolvedEndpoint {
+  path: string
+  pathItem: OpenAPIV3.PathItemObject
+  pathParams: Record<string, string>
+  placeholderNames: Record<string, string>
 }
 
 export interface ApiClientOptions {

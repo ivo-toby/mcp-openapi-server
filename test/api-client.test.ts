@@ -344,6 +344,466 @@ describe("ApiClient Dynamic Meta-Tools", () => {
         data: { name: "Quarterly" },
       })
     })
+
+    describe("Issue #100: concrete paths in dynamic mode", () => {
+      const spec = {
+        openapi: "3.0.0",
+        info: { title: "Test API", version: "1.0.0" },
+        paths: {
+          "/users/{id}": {
+            get: { summary: "Get user", responses: {} },
+            delete: { summary: "Delete user", responses: {} },
+          },
+          "/users/me": {
+            get: { summary: "Get current user", responses: {} },
+          },
+          "/users/{userId}/posts/{postId}": {
+            put: {
+              summary: "Update post",
+              requestBody: {
+                content: { "application/merge-patch+json": { schema: { type: "object" } } },
+              },
+              responses: {},
+            },
+          },
+          "/{collection}/{id}": {
+            get: { summary: "Generic lookup", responses: {} },
+          },
+          "/files/{name}.json": {
+            get: { summary: "Get JSON file", responses: {} },
+          },
+          "/admin/{id}": {
+            delete: { summary: "Delete admin", tags: ["admin"], responses: {} },
+          },
+          "/admin": {
+            get: { summary: "Admin overview", tags: ["admin"], responses: {} },
+          },
+          "/reports/{year}/{month}": {
+            get: { summary: "Monthly report", responses: {} },
+          },
+          "/users": {
+            get: { summary: "List users", responses: {} },
+          },
+        },
+      }
+
+      const excludingClient = () => {
+        const client = new ApiClient(
+          "https://api.example.com",
+          new StaticAuthProvider(),
+          mockSpecLoader,
+          { excludeTags: ["admin"] },
+        )
+        ;(client as any).axiosInstance = mockAxios
+        client.setOpenApiSpec(spec as any)
+        return client
+      }
+
+      beforeEach(() => {
+        apiClient.setOpenApiSpec(spec as any)
+        mockAxios.request.mockResolvedValue({ data: { ok: true } })
+      })
+
+      it("should match a concrete path against its template", async () => {
+        const result = await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+          endpoint: "/users/123",
+          method: "GET",
+          params: { verbose: true },
+        })
+
+        expect(result).toEqual({ ok: true })
+        expect(mockAxios.request).toHaveBeenCalledWith({
+          method: "get",
+          url: "/users/123",
+          headers: {},
+          params: { verbose: true },
+        })
+      })
+
+      it("should interpolate path params when the template is used", async () => {
+        await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+          endpoint: "/users/{id}",
+          method: "GET",
+          params: { id: 123, verbose: true },
+        })
+
+        expect(mockAxios.request).toHaveBeenCalledWith({
+          method: "get",
+          url: "/users/123",
+          headers: {},
+          params: { verbose: true },
+        })
+      })
+
+      it("should throw a clear error when a template path param is missing", async () => {
+        await expect(
+          apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+            endpoint: "/users/{id}",
+            method: "GET",
+            params: {},
+          }),
+        ).rejects.toThrow("Missing required path parameter 'id' for endpoint '/users/{id}'")
+        expect(mockAxios.request).not.toHaveBeenCalled()
+      })
+
+      it("should prefer a literal path over a template", async () => {
+        const result = await apiClient.executeApiCall("GET-API-ENDPOINT-SCHEMA", {
+          endpoint: "/users/me",
+        })
+        expect(result.path).toBe("/users/me")
+
+        await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+          endpoint: "/users/me",
+          method: "GET",
+        })
+        expect(mockAxios.request).toHaveBeenCalledWith(
+          expect.objectContaining({ method: "get", url: "/users/me" }),
+        )
+      })
+
+      it("should fall back to a template when the literal path lacks the method", async () => {
+        await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+          endpoint: "/users/me",
+          method: "DELETE",
+        })
+        expect(mockAxios.request).toHaveBeenCalledWith(
+          expect.objectContaining({ method: "delete", url: "/users/me" }),
+        )
+      })
+
+      it("should prefer the most specific template", async () => {
+        const result = await apiClient.executeApiCall("GET-API-ENDPOINT-SCHEMA", {
+          endpoint: "/users/42",
+        })
+        expect(result.path).toBe("/users/{id}")
+
+        const generic = await apiClient.executeApiCall("GET-API-ENDPOINT-SCHEMA", {
+          endpoint: "/orders/42",
+        })
+        expect(generic.path).toBe("/{collection}/{id}")
+      })
+
+      it("should handle multiple params, non-JSON content types and trailing slashes", async () => {
+        await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+          endpoint: "/users/7/posts/99/",
+          method: "PUT",
+          params: { title: "Hello" },
+        })
+
+        expect(mockAxios.request).toHaveBeenCalledWith({
+          method: "put",
+          url: "/users/7/posts/99",
+          headers: { "Content-Type": "application/merge-patch+json" },
+          data: { title: "Hello" },
+        })
+      })
+
+      it("should match params embedded in a segment and round-trip encoding", async () => {
+        await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+          endpoint: "/files/my%20report.json",
+          method: "GET",
+        })
+
+        expect(mockAxios.request).toHaveBeenCalledWith(
+          expect.objectContaining({ url: "/files/my%20report.json", params: {} }),
+        )
+      })
+
+      it("should let path values from a concrete endpoint win over duplicate params", async () => {
+        await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+          endpoint: "/users/123",
+          method: "GET",
+          params: { id: 999 },
+        })
+
+        expect(mockAxios.request).toHaveBeenCalledWith(
+          expect.objectContaining({ url: "/users/123", params: {} }),
+        )
+      })
+
+      it("should resolve a concrete path when no method is given", async () => {
+        await apiClient.executeApiCall("INVOKE-API-ENDPOINT", { endpoint: "/users/5" })
+
+        expect(mockAxios.request).toHaveBeenCalledWith(
+          expect.objectContaining({ method: "get", url: "/users/5" }),
+        )
+      })
+
+      it("should still apply tag exclusion to concrete paths", async () => {
+        const client = excludingClient()
+
+        await expect(
+          client.executeApiCall("INVOKE-API-ENDPOINT", {
+            endpoint: "/admin/1",
+            method: "DELETE",
+          }),
+        ).rejects.toThrow("Endpoint '/admin/1' with method 'DELETE' is excluded by tag filter")
+        expect(mockAxios.request).not.toHaveBeenCalled()
+      })
+
+      describe("dot-segment path traversal", () => {
+        it.each([
+          ["concrete '..'", { endpoint: "/users/..", method: "DELETE" }],
+          ["concrete '.'", { endpoint: "/users/.", method: "DELETE" }],
+          ["percent-encoded '..'", { endpoint: "/users/%2e%2e", method: "DELETE" }],
+          ["percent-encoded '.'", { endpoint: "/users/%2E", method: "GET" }],
+          [
+            "template + '..' param",
+            { endpoint: "/users/{id}", method: "DELETE", params: { id: ".." } },
+          ],
+          [
+            "template + '.' param",
+            { endpoint: "/users/{id}", method: "DELETE", params: { id: "." } },
+          ],
+          ["method-less concrete '..'", { endpoint: "/users/.." }],
+        ])("should reject %s", async (_label, args) => {
+          await expect(apiClient.executeApiCall("INVOKE-API-ENDPOINT", args)).rejects.toThrow(
+            "path parameters must not resolve to '.' or '..' segments",
+          )
+          expect(mockAxios.request).not.toHaveBeenCalled()
+        })
+
+        it("should not let '..' bypass the tag filter", async () => {
+          const client = excludingClient()
+
+          await expect(
+            client.executeApiCall("INVOKE-API-ENDPOINT", { endpoint: "/admin", method: "GET" }),
+          ).rejects.toThrow("excluded by tag filter")
+          await expect(
+            client.executeApiCall("INVOKE-API-ENDPOINT", {
+              endpoint: "/reports/../admin",
+              method: "GET",
+            }),
+          ).rejects.toThrow("must not resolve to '.' or '..' segments")
+          expect(mockAxios.request).not.toHaveBeenCalled()
+        })
+
+        it("should still allow dots that are not whole segments", async () => {
+          await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+            endpoint: "/files/...json",
+            method: "GET",
+          })
+          await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+            endpoint: "/users/{id}",
+            method: "GET",
+            params: { id: "v1.2" },
+          })
+
+          expect(mockAxios.request).toHaveBeenNthCalledWith(
+            1,
+            expect.objectContaining({ url: "/files/...json" }),
+          )
+          expect(mockAxios.request).toHaveBeenNthCalledWith(
+            2,
+            expect.objectContaining({ url: "/users/v1.2" }),
+          )
+        })
+      })
+
+      it("should move a query string on the endpoint into params", async () => {
+        await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+          endpoint: "/users/123?verbose=true&tag=a&tag=b#section",
+          method: "GET",
+          params: { verbose: "false" },
+        })
+
+        expect(mockAxios.request).toHaveBeenCalledWith({
+          method: "get",
+          url: "/users/123",
+          headers: {},
+          params: { verbose: "false", tag: "a,b" },
+        })
+      })
+
+      it("should keep an endpoint query string in the query for body methods", async () => {
+        await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+          endpoint: "/users/7/posts/99?dryRun=true",
+          method: "PUT",
+          params: { title: "n" },
+        })
+
+        expect(mockAxios.request).toHaveBeenCalledWith({
+          method: "put",
+          url: "/users/7/posts/99",
+          headers: { "Content-Type": "application/merge-patch+json" },
+          params: { dryRun: "true" },
+          data: { title: "n" },
+        })
+      })
+
+      it("should let explicit params override an endpoint query key for body methods", async () => {
+        await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+          endpoint: "/users/7/posts/99?title=fromQuery",
+          method: "PUT",
+          params: { title: "fromParams" },
+        })
+
+        expect(mockAxios.request).toHaveBeenCalledWith(
+          expect.objectContaining({ data: { title: "fromParams" } }),
+        )
+        expect(mockAxios.request.mock.calls[0][0].params).toBeUndefined()
+      })
+
+      it("should not treat Object.prototype members as supplied values", async () => {
+        await expect(
+          apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+            endpoint: "/users/{toString}",
+            method: "GET",
+          }),
+        ).rejects.toThrow("Missing required path parameter 'id'")
+
+        await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+          endpoint: "/users/1?constructor=x&constructor=y",
+          method: "GET",
+        })
+        expect(mockAxios.request).toHaveBeenCalledWith(
+          expect.objectContaining({ params: { constructor: "x,y" } }),
+        )
+      })
+
+      it("should handle a non-string endpoint in the schema tool", async () => {
+        await expect(
+          apiClient.executeApiCall("GET-API-ENDPOINT-SCHEMA", { endpoint: 5 }),
+        ).rejects.toThrow("No endpoint found for path '5'")
+      })
+
+      it("should drop a fragment from the endpoint", async () => {
+        await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+          endpoint: "/users/123#frag",
+          method: "GET",
+        })
+
+        expect(mockAxios.request).toHaveBeenCalledWith(
+          expect.objectContaining({ url: "/users/123", params: {} }),
+        )
+      })
+
+      it("should fill placeholders left in a partially concrete endpoint from params", async () => {
+        await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+          endpoint: "/users/123/posts/{postId}",
+          method: "PUT",
+          params: { postId: 9, title: "Hi" },
+        })
+
+        expect(mockAxios.request).toHaveBeenCalledWith(
+          expect.objectContaining({ url: "/users/123/posts/9", data: { title: "Hi" } }),
+        )
+      })
+
+      it("should map a placeholder named differently from the spec onto the spec name", async () => {
+        await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+          endpoint: "/users/{user_id}",
+          method: "GET",
+          params: { user_id: 9 },
+        })
+
+        expect(mockAxios.request).toHaveBeenCalledWith(
+          expect.objectContaining({ url: "/users/9", params: {} }),
+        )
+      })
+
+      it("should report a missing value for an unfilled placeholder", async () => {
+        await expect(
+          apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+            endpoint: "/users/123/posts/{postId}",
+            method: "PUT",
+          }),
+        ).rejects.toThrow("Missing required path parameter 'postId'")
+        expect(mockAxios.request).not.toHaveBeenCalled()
+      })
+
+      it("should tolerate a trailing slash or missing leading slash on literal paths", async () => {
+        await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+          endpoint: "/users/",
+          method: "GET",
+        })
+        await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+          endpoint: "users/42",
+          method: "GET",
+        })
+
+        expect(mockAxios.request).toHaveBeenNthCalledWith(
+          1,
+          expect.objectContaining({ url: "/users" }),
+        )
+        expect(mockAxios.request).toHaveBeenNthCalledWith(
+          2,
+          expect.objectContaining({ url: "/users/42" }),
+        )
+      })
+
+      it("should reject a method that is not an HTTP method", async () => {
+        await expect(
+          apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+            endpoint: "/users/{id}",
+            method: "parameters",
+            params: { id: 1 },
+          }),
+        ).rejects.toThrow("Invalid HTTP method 'parameters'")
+        expect(mockAxios.request).not.toHaveBeenCalled()
+      })
+
+      describe("with endpoint tools loaded", () => {
+        const userTool = {
+          name: "get-user",
+          description: "Get user",
+          inputSchema: {
+            type: "object" as const,
+            properties: {
+              id: { type: "string", "x-parameter-location": "path" },
+              q: { type: "string", "x-parameter-location": "query" },
+            },
+          },
+          originalPath: "/users/{id}",
+        } as any
+
+        let callableAxios: any
+
+        beforeEach(() => {
+          callableAxios = Object.assign(vi.fn().mockResolvedValue({ data: { via: "tool" } }), {
+            request: vi.fn(),
+          })
+          ;(apiClient as any).axiosInstance = callableAxios
+          apiClient.setTools(new Map([["GET::users__---id", userTool]]))
+        })
+
+        it("should route a concrete path to the matching endpoint tool", async () => {
+          const result = await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+            endpoint: "/users/123",
+            method: "GET",
+            params: { q: "1" },
+          })
+
+          expect(result).toEqual({ via: "tool" })
+          expect(callableAxios).toHaveBeenCalledWith(
+            expect.objectContaining({ method: "get", url: "/users/123", params: { q: "1" } }),
+          )
+          expect(callableAxios.request).not.toHaveBeenCalled()
+        })
+
+        it("should reject dot-segment path params on regular endpoint tools", async () => {
+          await expect(apiClient.executeApiCall("GET::users__---id", { id: ".." })).rejects.toThrow(
+            "must not resolve to '.' or '..' segments",
+          )
+          await expect(
+            apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+              endpoint: "/users/..",
+              method: "GET",
+            }),
+          ).rejects.toThrow("must not resolve to '.' or '..' segments")
+          expect(callableAxios).not.toHaveBeenCalled()
+        })
+      })
+
+      it("should still fail for paths that match no template", async () => {
+        await expect(
+          apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+            endpoint: "/nope/1/2",
+            method: "GET",
+          }),
+        ).rejects.toThrow("No endpoint found for path '/nope/1/2' with method 'GET'")
+      })
+    })
   })
 
   it("should provide specific error messages for GET-API-ENDPOINT-SCHEMA with missing endpoint", async () => {
