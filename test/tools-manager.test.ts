@@ -36,6 +36,32 @@ describe("ToolsManager", () => {
     vi.clearAllMocks()
   })
 
+  describe("Issue #96: HTTPS agent wiring", () => {
+    it("should pass the HTTPS agent to the spec loader, scoped to the API base URL", () => {
+      const httpsAgent = { mock: "agent" } as any
+      vi.mocked(OpenAPISpecLoader).mockClear()
+
+      new ToolsManager({ ...mockConfig, apiBaseUrl: "https://api.example.com/v1" }, { httpsAgent })
+
+      expect(OpenAPISpecLoader).toHaveBeenCalledWith(
+        expect.objectContaining({
+          httpsAgent,
+          httpsAgentScope: "https://api.example.com/v1",
+        }),
+      )
+    })
+
+    it("should not pass an HTTPS agent when none is provided", () => {
+      vi.mocked(OpenAPISpecLoader).mockClear()
+
+      new ToolsManager(mockConfig)
+
+      expect(OpenAPISpecLoader).toHaveBeenCalledWith(
+        expect.objectContaining({ httpsAgent: undefined }),
+      )
+    })
+  })
+
   describe("initialize", () => {
     it("should load and parse the OpenAPI spec", async () => {
       const mockSpec = { paths: {} }
