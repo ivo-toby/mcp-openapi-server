@@ -25,6 +25,8 @@ export class ToolsManager {
       disableAbbreviation: this.config.disableAbbreviation,
       verbose: this.config.verbose,
       httpsAgent: options?.httpsAgent,
+      // TLS settings are configured for the API; only use them for a spec on the API's origin
+      httpsAgentScope: this.config.apiBaseUrl,
     })
     this.logger = new Logger(this.config.verbose)
   }

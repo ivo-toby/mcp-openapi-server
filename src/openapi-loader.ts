@@ -41,7 +41,18 @@ export interface OpenAPISpecLoaderOptions {
    * behind mTLS or a private CA can be fetched with the same TLS settings as API calls
    */
   httpsAgent?: HttpsAgent
+  /**
+   * Restricts `httpsAgent` to spec URLs on this URL's origin (scheme + host + port),
+   * typically the API base URL. Spec URLs (and redirect targets) on any other origin
+   * are fetched without the agent, so client certificates, custom CAs and
+   * `rejectUnauthorized: false` never leak to unrelated hosts.
+   * When omitted, the agent is used for every https:// spec URL.
+   */
+  httpsAgentScope?: string
 }
+
+/** Maximum number of redirects followed when loading a spec with the HTTPS agent */
+const MAX_SPEC_REDIRECTS = 5
 
 /**
  * Class to load and parse OpenAPI specifications
@@ -57,11 +68,19 @@ export class OpenAPISpecLoader {
    * used when fetching the spec from an https:// URL
    */
   private httpsAgent?: HttpsAgent
+  /**
+   * Origin the HTTPS agent is restricted to. `undefined` means unrestricted,
+   * `null` means the configured scope was not a valid URL (agent is never used).
+   */
+  private httpsAgentOrigin?: string | null
 
   constructor(config?: OpenAPISpecLoaderOptions) {
     this.disableAbbreviation = config?.disableAbbreviation ?? false
     this.logger = new Logger(config?.verbose ?? true)
     this.httpsAgent = config?.httpsAgent
+    if (config?.httpsAgentScope !== undefined) {
+      this.httpsAgentOrigin = this.getOrigin(config.httpsAgentScope)
+    }
   }
 
   /**
@@ -96,7 +115,7 @@ export class OpenAPISpecLoader {
       }
     } catch (error) {
       if (error instanceof Error) {
-        throw new Error(`Failed to load OpenAPI spec from ${inputMethod}: ${error.message}`)
+        throw new Error(`Failed to load OpenAPI spec from ${inputMethod}: ${error.message.trim()}`)
       }
       throw error
     }
@@ -108,10 +127,16 @@ export class OpenAPISpecLoader {
    * Load spec content from URL
    */
   private async loadFromUrl(url: string): Promise<string> {
-    if (this.httpsAgent && this.isHttpsUrl(url)) {
+    if (this.httpsAgent && this.shouldUseHttpsAgent(url)) {
       return await this.loadFromUrlWithAgent(url, this.httpsAgent)
     }
+    return await this.fetchText(url)
+  }
 
+  /**
+   * Load spec content with Node's built-in fetch (no custom TLS settings)
+   */
+  private async fetchText(url: string): Promise<string> {
     const response = await fetch(url)
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`)
@@ -123,31 +148,72 @@ export class OpenAPISpecLoader {
    * Load spec content from an https:// URL using a custom HTTPS agent.
    * Node's built-in fetch cannot use a node:https Agent, so axios is used here
    * (the same client and agent that ApiClient uses for API calls).
+   *
+   * Redirects are followed manually so every hop is re-checked against the agent's
+   * scope: a redirect to another origin continues without the agent.
    */
   private async loadFromUrlWithAgent(url: string, httpsAgent: HttpsAgent): Promise<string> {
-    const response = await axios.get<string>(url, {
-      httpsAgent,
-      responseType: "text",
-      // Keep the raw body; parseSpecContent handles JSON and YAML itself
-      transformResponse: [(data) => data],
-      validateStatus: () => true,
-      timeout: 30000,
-      maxContentLength: 50 * 1024 * 1024,
-      maxRedirects: 5,
-    })
+    let currentUrl = url
 
-    if (response.status < 200 || response.status >= 300) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+    for (let redirects = 0; redirects <= MAX_SPEC_REDIRECTS; redirects++) {
+      const response = await axios.get<string>(currentUrl, {
+        httpsAgent,
+        // Connect directly, as fetch does. Proxying an https URL through axios would
+        // bypass the agent's TLS settings entirely.
+        proxy: false,
+        responseType: "text",
+        // Keep the raw body; parseSpecContent handles JSON and YAML itself
+        transformResponse: [(data) => data],
+        validateStatus: () => true,
+        maxRedirects: 0,
+        timeout: 30000,
+        maxContentLength: 50 * 1024 * 1024,
+      })
+
+      const location = response.headers?.location
+      if (response.status >= 300 && response.status < 400 && location) {
+        currentUrl = new URL(String(location), currentUrl).toString()
+        if (!this.shouldUseHttpsAgent(currentUrl)) {
+          return await this.fetchText(currentUrl)
+        }
+        continue
+      }
+
+      if (response.status < 200 || response.status >= 300) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+
+      return String(response.data ?? "")
     }
 
-    return typeof response.data === "string" ? response.data : JSON.stringify(response.data)
+    throw new Error(`Too many redirects (more than ${MAX_SPEC_REDIRECTS})`)
   }
 
-  private isHttpsUrl(url: string): boolean {
+  /**
+   * Whether the HTTPS agent may be used for this URL: it must be https:// and,
+   * when a scope is configured, on the scoped origin
+   */
+  private shouldUseHttpsAgent(url: string): boolean {
+    let parsed: URL
     try {
-      return new URL(url).protocol === "https:"
+      parsed = new URL(url)
     } catch {
       return false
+    }
+    if (parsed.protocol !== "https:") {
+      return false
+    }
+    if (this.httpsAgentOrigin === undefined) {
+      return true
+    }
+    return this.httpsAgentOrigin !== null && parsed.origin === this.httpsAgentOrigin
+  }
+
+  private getOrigin(url: string): string | null {
+    try {
+      return new URL(url.trim()).origin
+    } catch {
+      return null
     }
   }
 

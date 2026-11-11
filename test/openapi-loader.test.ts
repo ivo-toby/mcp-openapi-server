@@ -363,24 +363,33 @@ paths:
   })
 
   describe("Issue #96: loading spec from URL behind mTLS", () => {
-    const url = "https://secure.example.com/openapi"
+    const apiOrigin = "https://secure.example.com"
+    const url = `${apiOrigin}/openapi`
     let httpsAgent: HttpsAgent
+    let loader: OpenAPISpecLoader
+
+    const okFetch = () =>
+      ({
+        ok: true,
+        text: async () => JSON.stringify(mockOpenAPISpec),
+      }) as Response
 
     beforeEach(() => {
       httpsAgent = new HttpsAgent({ rejectUnauthorized: true })
+      loader = new OpenAPISpecLoader({ httpsAgent, httpsAgentScope: `${apiOrigin}/api/v1` })
     })
 
     afterEach(() => {
       httpsAgent.destroy()
     })
 
-    it("should fetch https spec URLs through the configured HTTPS agent", async () => {
+    it("should fetch same-origin https spec URLs through the HTTPS agent, directly", async () => {
       vi.mocked(axios.get).mockResolvedValueOnce({
         status: 200,
         statusText: "OK",
+        headers: {},
         data: JSON.stringify(mockOpenAPISpec),
       })
-      const loader = new OpenAPISpecLoader({ httpsAgent })
 
       const result = await loader.loadOpenAPISpec(url, "url")
 
@@ -388,7 +397,12 @@ paths:
       expect(fetch).not.toHaveBeenCalled()
       expect(axios.get).toHaveBeenCalledWith(
         url,
-        expect.objectContaining({ httpsAgent, responseType: "text" }),
+        expect.objectContaining({
+          httpsAgent,
+          proxy: false,
+          maxRedirects: 0,
+          responseType: "text",
+        }),
       )
     })
 
@@ -396,9 +410,9 @@ paths:
       vi.mocked(axios.get).mockResolvedValueOnce({
         status: 200,
         statusText: "OK",
+        headers: {},
         data: "openapi: 3.0.0\ninfo:\n  title: Secure API\n  version: 1.0.0\npaths: {}\n",
       })
-      const loader = new OpenAPISpecLoader({ httpsAgent })
 
       const result = await loader.loadOpenAPISpec(url, "url")
 
@@ -409,31 +423,106 @@ paths:
       vi.mocked(axios.get).mockResolvedValueOnce({
         status: 403,
         statusText: "Forbidden",
+        headers: {},
         data: "",
       })
-      const loader = new OpenAPISpecLoader({ httpsAgent })
 
       await expect(loader.loadOpenAPISpec(url, "url")).rejects.toThrow(
         "Failed to load OpenAPI spec from url: HTTP 403: Forbidden",
       )
     })
 
-    it("should surface TLS errors from the HTTPS request", async () => {
-      vi.mocked(axios.get).mockRejectedValueOnce(new Error("certificate required"))
-      const loader = new OpenAPISpecLoader({ httpsAgent })
+    it("should surface TLS errors from the HTTPS request without trailing whitespace", async () => {
+      vi.mocked(axios.get).mockRejectedValueOnce(new Error("certificate required\n"))
 
-      await expect(loader.loadOpenAPISpec(url, "url")).rejects.toThrow(
+      const error = await loader.loadOpenAPISpec(url, "url").catch((e: Error) => e)
+
+      expect((error as Error).message).toBe(
         "Failed to load OpenAPI spec from url: certificate required",
       )
     })
 
+    it("should not use the HTTPS agent for spec URLs on a different origin", async () => {
+      const otherUrl = "https://raw.githubusercontent.com/example/api/main/openapi.json"
+      vi.mocked(fetch).mockResolvedValueOnce(okFetch())
+
+      const result = await loader.loadOpenAPISpec(otherUrl, "url")
+
+      expect(result).toEqual(mockOpenAPISpec)
+      expect(fetch).toHaveBeenCalledWith(otherUrl)
+      expect(axios.get).not.toHaveBeenCalled()
+    })
+
+    it("should treat a different port on the same host as a different origin", async () => {
+      const otherPortUrl = "https://secure.example.com:8443/openapi"
+      vi.mocked(fetch).mockResolvedValueOnce(okFetch())
+
+      await loader.loadOpenAPISpec(otherPortUrl, "url")
+
+      expect(fetch).toHaveBeenCalledWith(otherPortUrl)
+      expect(axios.get).not.toHaveBeenCalled()
+    })
+
+    it("should keep using the HTTPS agent across same-origin redirects", async () => {
+      vi.mocked(axios.get)
+        .mockResolvedValueOnce({
+          status: 302,
+          statusText: "Found",
+          headers: { location: "/specs/v2/openapi.json" },
+          data: "",
+        })
+        .mockResolvedValueOnce({
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          data: JSON.stringify(mockOpenAPISpec),
+        })
+
+      const result = await loader.loadOpenAPISpec(url, "url")
+
+      expect(result).toEqual(mockOpenAPISpec)
+      expect(axios.get).toHaveBeenNthCalledWith(
+        2,
+        `${apiOrigin}/specs/v2/openapi.json`,
+        expect.objectContaining({ httpsAgent }),
+      )
+      expect(fetch).not.toHaveBeenCalled()
+    })
+
+    it("should drop the HTTPS agent when redirected to another origin", async () => {
+      const target = "https://cdn.example.net/openapi.json"
+      vi.mocked(axios.get).mockResolvedValueOnce({
+        status: 301,
+        statusText: "Moved Permanently",
+        headers: { location: target },
+        data: "",
+      })
+      vi.mocked(fetch).mockResolvedValueOnce(okFetch())
+
+      const result = await loader.loadOpenAPISpec(url, "url")
+
+      expect(result).toEqual(mockOpenAPISpec)
+      expect(axios.get).toHaveBeenCalledTimes(1)
+      expect(fetch).toHaveBeenCalledWith(target)
+    })
+
+    it("should stop after too many same-origin redirects", async () => {
+      vi.mocked(axios.get).mockResolvedValue({
+        status: 302,
+        statusText: "Found",
+        headers: { location: "/loop" },
+        data: "",
+      })
+
+      await expect(loader.loadOpenAPISpec(url, "url")).rejects.toThrow(
+        "Failed to load OpenAPI spec from url: Too many redirects (more than 5)",
+      )
+      expect(axios.get).toHaveBeenCalledTimes(6)
+    })
+
     it("should keep using fetch for http:// spec URLs even when an agent is configured", async () => {
-      const httpUrl = "http://localhost:8080/openapi.json"
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        text: async () => JSON.stringify(mockOpenAPISpec),
-      } as Response)
-      const loader = new OpenAPISpecLoader({ httpsAgent })
+      const httpUrl = "http://secure.example.com/openapi.json"
+      vi.mocked(fetch).mockResolvedValueOnce(okFetch())
 
       const result = await loader.loadOpenAPISpec(httpUrl, "url")
 
@@ -442,11 +531,35 @@ paths:
       expect(axios.get).not.toHaveBeenCalled()
     })
 
+    it("should never use the HTTPS agent when its scope is not a valid URL", async () => {
+      const invalidScopeLoader = new OpenAPISpecLoader({ httpsAgent, httpsAgentScope: "not a url" })
+      vi.mocked(fetch).mockResolvedValueOnce(okFetch())
+
+      await invalidScopeLoader.loadOpenAPISpec(url, "url")
+
+      expect(fetch).toHaveBeenCalledWith(url)
+      expect(axios.get).not.toHaveBeenCalled()
+    })
+
+    it("should use the HTTPS agent for any https URL when no scope is given", async () => {
+      const unscopedLoader = new OpenAPISpecLoader({ httpsAgent })
+      vi.mocked(axios.get).mockResolvedValueOnce({
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        data: JSON.stringify(mockOpenAPISpec),
+      })
+
+      await unscopedLoader.loadOpenAPISpec("https://elsewhere.example.org/openapi", "url")
+
+      expect(axios.get).toHaveBeenCalledWith(
+        "https://elsewhere.example.org/openapi",
+        expect.objectContaining({ httpsAgent }),
+      )
+    })
+
     it("should keep using fetch when no HTTPS agent is configured", async () => {
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        text: async () => JSON.stringify(mockOpenAPISpec),
-      } as Response)
+      vi.mocked(fetch).mockResolvedValueOnce(okFetch())
 
       await openAPILoader.loadOpenAPISpec(url, "url")
 
