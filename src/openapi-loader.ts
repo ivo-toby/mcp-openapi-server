@@ -403,6 +403,8 @@ export class OpenAPISpecLoader {
    */
   parseOpenAPISpec(spec: OpenAPIV3.Document): Map<string, Tool> {
     const tools = new Map<string, Tool>()
+    // Lowercased tool names already assigned, used to keep names unique (Issue #103)
+    const usedNames = new Set<string>()
 
     // Convert each OpenAPI path to an MCP tool
     for (const [path, pathItem] of Object.entries(spec.paths)) {
@@ -466,7 +468,11 @@ export class OpenAPISpecLoader {
         const toolId = generateToolId(method, path)
 
         const nameSource = op.operationId || op.summary || `${method.toUpperCase()} ${path}`
-        const name = this.abbreviateOperationId(nameSource)
+        const name = this.ensureUniqueToolName(
+          this.abbreviateOperationId(nameSource),
+          toolId,
+          usedNames,
+        )
 
         const tool: ExtendedTool = {
           name,
@@ -693,6 +699,42 @@ export class OpenAPISpecLoader {
     }
 
     return tools
+  }
+
+  /**
+   * Make sure a generated tool name is unique within the server (Issue #103).
+   *
+   * Different operations can reduce to the same name (e.g. summaries that only differ
+   * in non-ASCII characters that get sanitized away). The first operation keeps the
+   * base name; later ones get a suffix derived from the tool ID (method + path), so the
+   * suffix is stable regardless of the order operations appear in the spec.
+   */
+  private ensureUniqueToolName(baseName: string, toolId: string, usedNames: Set<string>): string {
+    const maxLength = this.disableAbbreviation ? Number.MAX_SAFE_INTEGER : 64
+    const withSuffix = (suffix: string): string => {
+      const maxBaseLength = maxLength - suffix.length - 1
+      const trimmedBase =
+        baseName.length > maxBaseLength
+          ? baseName.substring(0, maxBaseLength).replace(/-+$/, "")
+          : baseName
+      return `${trimmedBase}-${suffix}`
+    }
+
+    let candidate = baseName
+    if (usedNames.has(candidate.toLowerCase())) {
+      const hash = this.generateShortHash(toolId, 8)
+      candidate = withSuffix(hash.substring(0, 4))
+      let counter = 2
+      while (usedNames.has(candidate.toLowerCase())) {
+        candidate = withSuffix(`${hash.substring(0, 4)}-${counter++}`)
+      }
+      this.logger.warn(
+        `Tool name "${baseName}" for ${toolId} is already in use; using "${candidate}" instead`,
+      )
+    }
+
+    usedNames.add(candidate.toLowerCase())
+    return candidate
   }
 
   // Helper function to generate a simple hash
