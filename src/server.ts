@@ -106,11 +106,13 @@ export class OpenAPIServer {
       { name: config.name, version: config.version },
       { capabilities, instructions: config.instructions },
     )
-    this.toolsManager = new ToolsManager(config)
+    // TLS settings (mTLS, custom CA, verification) apply both to API calls and to
+    // fetching the OpenAPI spec from a URL, which is often served by the same host
+    const apiClientOptions: ApiClientOptions = this.createApiClientOptions() || {}
+    this.toolsManager = new ToolsManager(config, { httpsAgent: apiClientOptions.httpsAgent })
 
     // Use AuthProvider if provided, otherwise fallback to static headers
     const authProviderOrHeaders = config.authProvider || new StaticAuthProvider(config.headers)
-    const apiClientOptions: ApiClientOptions = this.createApiClientOptions() || {}
     apiClientOptions.excludeTags = config.excludeTags
     this.apiClient = new ApiClient(
       config.apiBaseUrl,

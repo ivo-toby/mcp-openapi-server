@@ -1,4 +1,5 @@
 import { Tool } from "@modelcontextprotocol/sdk/types.js"
+import type { Agent as HttpsAgent } from "node:https"
 import { OpenAPISpecLoader, ExtendedTool } from "./openapi-loader"
 import { OpenAPIMCPServerConfig } from "./config"
 import { OpenAPIV3 } from "openapi-types"
@@ -14,12 +15,18 @@ export class ToolsManager {
   private loadedSpec?: OpenAPIV3.Document
   private logger: Logger
 
-  constructor(private config: OpenAPIMCPServerConfig) {
+  constructor(
+    private config: OpenAPIMCPServerConfig,
+    options?: { httpsAgent?: HttpsAgent },
+  ) {
     // Ensure toolsMode has a default value of 'all'
     this.config.toolsMode = this.config.toolsMode || "all"
     this.specLoader = new OpenAPISpecLoader({
       disableAbbreviation: this.config.disableAbbreviation,
       verbose: this.config.verbose,
+      httpsAgent: options?.httpsAgent,
+      // TLS settings are configured for the API; only use them for a spec on the API's origin
+      httpsAgentScope: this.config.apiBaseUrl,
     })
     this.logger = new Logger(this.config.verbose)
   }
