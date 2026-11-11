@@ -220,7 +220,7 @@ describe("Issue #105: binary request and response bodies", () => {
       expect(calls[0].headers["Content-Type"]).toBe("application/octet-stream")
     })
 
-    it("marks primitive text bodies as wrapped, leaves object bodies alone", () => {
+    it("marks primitive text bodies with an x-body-wrapper, leaves object bodies alone", () => {
       expect((tools.get("POST::notes")!.inputSchema as any)["x-body-wrapper"]).toBe("body")
       expect((tools.get("POST::users")!.inputSchema as any)["x-body-encoding"]).toBeUndefined()
     })

@@ -15,9 +15,11 @@ import {
 } from "./utils/media-types.js"
 
 /**
- * How the `body` tool argument maps onto the HTTP request body (set by OpenAPISpecLoader)
- * - "binary": `body` is base64 and is sent as raw bytes
- * - "wrapped": `body` is the whole (non-object) request body, not a property of it
+ * How a dynamic-mode caller passes an operation's request body via INVOKE-API-ENDPOINT,
+ * derived from the OpenAPI spec (generated tools use the loader's x-body-wrapper /
+ * x-body-encoding metadata instead):
+ * - "binary": `params.body` is base64 and is sent as raw bytes
+ * - "wrapped": `params.body` is the whole (non-object) request body, not a property of it
  */
 type BodyEncoding = "binary" | "wrapped" | undefined
 
