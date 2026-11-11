@@ -119,6 +119,7 @@ The server can be configured through environment variables or command line argum
 - `OPENAPI_SPEC_FROM_STDIN` - Set to "true" to read OpenAPI spec from standard input
 - `OPENAPI_SPEC_INLINE` - Provide OpenAPI spec content directly as a string
 - `API_HEADERS` - Comma-separated key:value pairs for API headers
+- `SPEC_AUTH` - When to send the auth headers while loading the spec from a URL: `same-origin` (default), `always`, or `never` (see [Authenticated Spec URLs](#authenticated-spec-urls))
 - `CLIENT_CERT_PATH` - Path to client certificate PEM file for mutual TLS
 - `CLIENT_KEY_PATH` - Path to client private key PEM file for mutual TLS
 - `CA_CERT_PATH` - Path to custom CA certificate PEM file for private/internal CAs
@@ -146,6 +147,7 @@ npx @ivotoby/openapi-mcp-server \
   --api-base-url https://api.example.com \
   --openapi-spec https://api.example.com/openapi.json \
   --headers "Authorization:Bearer token123,X-API-Key:your-api-key" \
+  --spec-auth same-origin \
   --exclude-tag admin \
   --client-cert ./certs/client.pem \
   --client-key ./certs/client-key.pem \
@@ -211,6 +213,25 @@ npx @ivotoby/openapi-mcp-server \
   --api-base-url https://api.example.com \
   --openapi-spec https://api.example.com/openapi.json
 ```
+
+#### Authenticated Spec URLs
+
+If the API serves its own spec behind the same auth as its endpoints, the configured `--headers` (or your `AuthProvider`) are sent with the spec request too. By default this only happens when the spec URL is on the **same origin** (scheme, host and port) as `--api-base-url`, so your credentials never reach a spec hosted elsewhere:
+
+```bash
+npx @ivotoby/openapi-mcp-server \
+  --api-base-url https://api.example.com/v1 \
+  --openapi-spec https://api.example.com/openapi.json \
+  --headers "Authorization:Bearer token123"
+```
+
+Control this with `--spec-auth` / `SPEC_AUTH`:
+
+- `same-origin` (default): send auth headers only to a spec URL on the `--api-base-url` origin
+- `always`: send auth headers to the spec URL's own origin, even when it differs from the API (only for a spec host you trust with these credentials)
+- `never`: never send auth headers with spec requests
+
+In every mode, redirects are re-checked hop by hop. A redirect to another origin, such as a pre-signed storage URL, continues **without** auth headers. On a `401`/`403`, an `AuthProvider`'s `handleAuthError()` is called and the request is retried once if it returns `true`, the same as for API calls.
 
 ### 2. Local File Loading
 
@@ -281,7 +302,7 @@ cat openapi.json | docker run -i your-mcp-server \
 
 The server provides detailed error messages for spec loading failures:
 
-- **URL loading**: HTTP status codes and network errors
+- **URL loading**: HTTP status codes and network errors (a `401`/`403` from an authenticated spec URL usually means the headers or `--spec-auth` mode need adjusting)
 - **File loading**: File system errors (not found, permissions, etc.)
 - **Stdin loading**: Empty input or read errors
 - **Inline loading**: Missing content errors
@@ -534,6 +555,7 @@ HEALTHCHECK --interval=30s --timeout=3s \
 - The HTTP transport validates Origin headers to prevent DNS rebinding attacks
 - By default, HTTP transport only binds to localhost (127.0.0.1)
 - If exposing to other hosts, consider implementing additional authentication
+- Auth headers are only sent to a spec URL on the API's origin by default, and never across a cross-origin redirect; use `--spec-auth always` only for spec hosts you trust with your credentials
 
 ## Debugging
 

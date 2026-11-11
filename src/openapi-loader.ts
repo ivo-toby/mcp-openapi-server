@@ -1,7 +1,8 @@
 import { OpenAPIV3 } from "openapi-types"
 import { readFile } from "fs/promises"
 import type { Agent as HttpsAgent } from "node:https"
-import axios from "axios"
+import axios, { AxiosError, type AxiosResponse } from "axios"
+import type { AuthProvider } from "./auth-provider.js"
 import { Tool } from "@modelcontextprotocol/sdk/types.js"
 import yaml, { CORE_SCHEMA } from "js-yaml"
 import crypto from "crypto"
@@ -68,9 +69,31 @@ export interface OpenAPISpecLoaderOptions {
    * When omitted, the agent is used for every https:// spec URL.
    */
   httpsAgentScope?: string
+  /**
+   * Auth provider whose headers are sent with spec requests the `specAuth` mode allows
+   */
+  authProvider?: AuthProvider
+  /**
+   * Which spec URLs receive auth headers (default `"same-origin"`):
+   * - `"same-origin"`: only URLs on the origin of `authScope` (typically the API base URL)
+   * - `"always"`: the spec URL's own origin, even if it differs from the API
+   * - `"never"`: no auth headers on spec requests
+   * Redirects off the allowed origin never carry auth headers.
+   */
+  specAuth?: SpecAuthMode
+  /**
+   * URL whose origin auth headers are restricted to in `"same-origin"` mode, typically
+   * the API base URL. Without it, `"same-origin"` sends no auth headers.
+   */
+  authScope?: string
 }
 
-/** Maximum number of redirects followed when loading a spec with the HTTPS agent */
+/**
+ * Which spec URLs receive HTTP auth headers
+ */
+export type SpecAuthMode = "same-origin" | "always" | "never"
+
+/** Maximum number of redirects followed when loading a spec with axios */
 const MAX_SPEC_REDIRECTS = 5
 
 /**
@@ -92,6 +115,10 @@ export class OpenAPISpecLoader {
    * `null` means the configured scope was not a valid URL (agent is never used).
    */
   private httpsAgentOrigin?: string | null
+  private authProvider?: AuthProvider
+  private specAuth: SpecAuthMode
+  /** Origin auth headers are restricted to in "same-origin" mode (null: none) */
+  private authOrigin: string | null
 
   constructor(config?: OpenAPISpecLoaderOptions) {
     this.disableAbbreviation = config?.disableAbbreviation ?? false
@@ -100,6 +127,9 @@ export class OpenAPISpecLoader {
     if (config?.httpsAgentScope !== undefined) {
       this.httpsAgentOrigin = this.getOrigin(config.httpsAgentScope)
     }
+    this.authProvider = config?.authProvider
+    this.specAuth = config?.specAuth ?? "same-origin"
+    this.authOrigin = config?.authScope !== undefined ? this.getOrigin(config.authScope) : null
   }
 
   /**
@@ -143,35 +173,151 @@ export class OpenAPISpecLoader {
   }
 
   /**
-   * Load spec content from URL
+   * Load spec content from URL.
+   *
+   * Requests that need neither the HTTPS agent nor auth headers use Node's built-in
+   * fetch, as before. Otherwise axios is used (fetch cannot use a node:https Agent,
+   * and AuthProvider.handleAuthError expects an AxiosError). Redirects are then
+   * followed manually so every hop is re-checked: the agent and auth headers are
+   * only sent to the origins they are scoped to.
    */
   private async loadFromUrl(url: string): Promise<string> {
-    if (this.httpsAgent && this.shouldUseHttpsAgent(url)) {
-      return await this.loadFromUrlWithAgent(url, this.httpsAgent)
+    const allowedAuthOrigin = this.resolveAllowedAuthOrigin(url)
+    let currentUrl = url
+    let redirects = 0
+    let authRetried = false
+
+    for (;;) {
+      const useAgent = !!this.httpsAgent && this.shouldUseHttpsAgent(currentUrl)
+      const authHeaders = await this.getSpecAuthHeaders(currentUrl, allowedAuthOrigin)
+      const tlsNotice =
+        this.httpsAgent && !useAgent ? this.describeSkippedTlsOptions(currentUrl) : undefined
+      if (tlsNotice) {
+        this.logger.warn(`Warning: ${tlsNotice}`)
+      }
+
+      if (!useAgent && !authHeaders) {
+        // Nothing to apply: plain fetch, which follows any further redirects itself
+        return await this.withNotice(tlsNotice, () => this.fetchText(currentUrl))
+      }
+
+      const response = await this.withNotice(tlsNotice, () =>
+        this.axiosGet(currentUrl, useAgent ? this.httpsAgent : undefined, authHeaders),
+      )
+
+      const location = response.headers?.location
+      if (response.status >= 300 && response.status < 400 && location) {
+        if (redirects >= MAX_SPEC_REDIRECTS) {
+          throw new Error(`Too many redirects (more than ${MAX_SPEC_REDIRECTS})`)
+        }
+        redirects++
+        currentUrl = new URL(String(location), currentUrl).toString()
+        continue
+      }
+
+      if (
+        authHeaders &&
+        this.authProvider &&
+        !authRetried &&
+        (response.status === 401 || response.status === 403)
+      ) {
+        authRetried = true
+        if (await this.authProvider.handleAuthError(this.toAxiosError(response))) {
+          // Retry the same URL once with fresh headers
+          continue
+        }
+      }
+
+      if (response.status < 200 || response.status >= 300) {
+        throw new Error(
+          this.appendNotice(`HTTP ${response.status}: ${response.statusText}`, tlsNotice),
+        )
+      }
+
+      return String(response.data ?? "")
     }
-    return await this.fetchWithoutAgent(url)
+  }
+
+  private async axiosGet(
+    url: string,
+    httpsAgent: HttpsAgent | undefined,
+    headers: Record<string, string> | undefined,
+  ): Promise<AxiosResponse<string>> {
+    return await axios.get<string>(url, {
+      httpsAgent,
+      headers,
+      // Connect directly, as fetch does. Proxying an https URL through axios would
+      // bypass the agent's TLS settings entirely.
+      proxy: false,
+      responseType: "text",
+      // Keep the raw body; parseSpecContent handles JSON and YAML itself
+      transformResponse: [(data) => data],
+      validateStatus: () => true,
+      // Followed manually so each hop is re-checked against the agent and auth scope
+      maxRedirects: 0,
+      timeout: 30000,
+      maxContentLength: 50 * 1024 * 1024,
+    })
   }
 
   /**
-   * Fetch a spec URL that the HTTPS agent does not apply to. When TLS options are
-   * configured but skipped for this URL, say so: otherwise a TLS failure only shows
-   * up as a generic "fetch failed".
+   * Origin auth headers may be sent to for this spec URL, or null for none
    */
-  private async fetchWithoutAgent(url: string): Promise<string> {
-    if (!this.httpsAgent) {
-      return await this.fetchText(url)
+  private resolveAllowedAuthOrigin(specUrl: string): string | null {
+    if (!this.authProvider) {
+      return null
     }
+    switch (this.specAuth) {
+      case "never":
+        return null
+      case "always":
+        return this.getOrigin(specUrl)
+      default:
+        return this.authOrigin
+    }
+  }
 
-    const notice = this.describeSkippedTlsOptions(url)
-    this.logger.warn(`Warning: ${notice}`)
+  /**
+   * Auth headers for a request to this URL, or undefined when none may or need be sent
+   */
+  private async getSpecAuthHeaders(
+    url: string,
+    allowedOrigin: string | null,
+  ): Promise<Record<string, string> | undefined> {
+    if (!this.authProvider || allowedOrigin === null || this.getOrigin(url) !== allowedOrigin) {
+      return undefined
+    }
+    const headers = await this.authProvider.getAuthHeaders()
+    return headers && Object.keys(headers).length > 0 ? headers : undefined
+  }
+
+  private toAxiosError(response: AxiosResponse): AxiosError {
+    return new AxiosError(
+      `Request failed with status code ${response.status}`,
+      response.status >= 500 ? AxiosError.ERR_BAD_RESPONSE : AxiosError.ERR_BAD_REQUEST,
+      response.config,
+      response.request,
+      response,
+    )
+  }
+
+  /**
+   * Run a request and, when TLS options were skipped for it, add that to any error:
+   * otherwise a TLS failure only shows up as a generic "fetch failed"
+   */
+  private async withNotice<T>(notice: string | undefined, run: () => Promise<T>): Promise<T> {
     try {
-      return await this.fetchText(url)
+      return await run()
     } catch (error) {
-      if (error instanceof Error) {
-        throw new Error(`${error.message.trim()} (${notice})`)
+      if (notice && error instanceof Error) {
+        throw new Error(this.appendNotice(error.message, notice))
       }
       throw error
     }
+  }
+
+  private appendNotice(message: string, notice: string | undefined): string {
+    return notice ? `${message.trim()} (${notice})` : message
   }
 
   private describeSkippedTlsOptions(url: string): string {
@@ -185,7 +331,7 @@ export class OpenAPISpecLoader {
   }
 
   /**
-   * Load spec content with Node's built-in fetch (no custom TLS settings)
+   * Load spec content with Node's built-in fetch (no custom TLS settings, no auth)
    */
   private async fetchText(url: string): Promise<string> {
     const response = await fetch(url)
@@ -193,51 +339,6 @@ export class OpenAPISpecLoader {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`)
     }
     return await response.text()
-  }
-
-  /**
-   * Load spec content from an https:// URL using a custom HTTPS agent.
-   * Node's built-in fetch cannot use a node:https Agent, so axios is used here
-   * (the same client and agent that ApiClient uses for API calls).
-   *
-   * Redirects are followed manually so every hop is re-checked against the agent's
-   * scope: a redirect to another origin continues without the agent.
-   */
-  private async loadFromUrlWithAgent(url: string, httpsAgent: HttpsAgent): Promise<string> {
-    let currentUrl = url
-
-    for (let redirects = 0; redirects <= MAX_SPEC_REDIRECTS; redirects++) {
-      const response = await axios.get<string>(currentUrl, {
-        httpsAgent,
-        // Connect directly, as fetch does. Proxying an https URL through axios would
-        // bypass the agent's TLS settings entirely.
-        proxy: false,
-        responseType: "text",
-        // Keep the raw body; parseSpecContent handles JSON and YAML itself
-        transformResponse: [(data) => data],
-        validateStatus: () => true,
-        maxRedirects: 0,
-        timeout: 30000,
-        maxContentLength: 50 * 1024 * 1024,
-      })
-
-      const location = response.headers?.location
-      if (response.status >= 300 && response.status < 400 && location) {
-        currentUrl = new URL(String(location), currentUrl).toString()
-        if (!this.shouldUseHttpsAgent(currentUrl)) {
-          return await this.fetchWithoutAgent(currentUrl)
-        }
-        continue
-      }
-
-      if (response.status < 200 || response.status >= 300) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-      }
-
-      return String(response.data ?? "")
-    }
-
-    throw new Error(`Too many redirects (more than ${MAX_SPEC_REDIRECTS})`)
   }
 
   /**

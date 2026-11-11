@@ -5,6 +5,7 @@ import { AuthProvider } from "./auth-provider.js"
 import type { ExtraToolDefinition } from "./types/extra-tools"
 import type { PromptDefinition } from "./prompt-types"
 import type { ResourceDefinition } from "./resource-types"
+import type { SpecAuthMode } from "./openapi-loader"
 
 export interface OpenAPIMCPServerConfig {
   name: string
@@ -23,6 +24,11 @@ export interface OpenAPIMCPServerConfig {
   caCertPath?: string
   clientKeyPassphrase?: string
   rejectUnauthorized?: boolean
+  /**
+   * Which OpenAPI spec URLs receive the auth headers (default: "same-origin", i.e. only a
+   * spec URL on the apiBaseUrl origin; "always": the spec URL's own origin; "never": none)
+   */
+  specAuth?: SpecAuthMode
   transportType: "stdio" | "http"
   httpPort?: number
   httpHost?: string
@@ -167,6 +173,11 @@ export function loadConfig(): OpenAPIMCPServerConfig {
     .option("reject-unauthorized", {
       type: "string",
       description: "Whether to reject untrusted server certificates",
+    })
+    .option("spec-auth", {
+      type: "string",
+      description:
+        "Send auth headers when loading the spec URL: same-origin (default, only if on the API base URL origin), always, or never",
     })
     .option("name", {
       alias: "n",
@@ -322,6 +333,18 @@ export function loadConfig(): OpenAPIMCPServerConfig {
     throw new Error("API base URL is required (--api-base-url or API_BASE_URL)")
   }
 
+  const specAuthInput =
+    (typeof argv["spec-auth"] === "string" ? argv["spec-auth"] : undefined) || process.env.SPEC_AUTH
+  let specAuth: SpecAuthMode | undefined
+  if (typeof specAuthInput === "string" && specAuthInput.trim().length > 0) {
+    const normalized = specAuthInput.trim().toLowerCase()
+    if (normalized === "same-origin" || normalized === "always" || normalized === "never") {
+      specAuth = normalized
+    } else {
+      throw new Error("Invalid spec auth mode. Expected one of: same-origin, always, never")
+    }
+  }
+
   const headers = parseHeaders(argv.headers || process.env.API_HEADERS)
   const rejectUnauthorizedInput = parseOptionalBoolean(
     argv["reject-unauthorized"] ?? process.env.REJECT_UNAUTHORIZED,
@@ -344,6 +367,7 @@ export function loadConfig(): OpenAPIMCPServerConfig {
     clientKeyPassphrase:
       (argv["client-key-passphrase"] as string | undefined) || process.env.CLIENT_KEY_PASSPHRASE,
     rejectUnauthorized: rejectUnauthorizedInput ?? true,
+    specAuth,
     transportType,
     httpPort,
     httpHost,

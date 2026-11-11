@@ -36,6 +36,56 @@ describe("ToolsManager", () => {
     vi.clearAllMocks()
   })
 
+  describe("Issue #110: spec auth wiring", () => {
+    it("should pass an explicit auth provider, the specAuth mode and the API base URL as scope", () => {
+      const authProvider = { getAuthHeaders: vi.fn(), handleAuthError: vi.fn() }
+      vi.mocked(OpenAPISpecLoader).mockClear()
+
+      new ToolsManager(
+        { ...mockConfig, apiBaseUrl: "https://api.example.com/v1", specAuth: "always" },
+        { authProvider },
+      )
+
+      expect(OpenAPISpecLoader).toHaveBeenCalledWith(
+        expect.objectContaining({
+          authProvider,
+          specAuth: "always",
+          authScope: "https://api.example.com/v1",
+        }),
+      )
+    })
+
+    it("should fall back to config.authProvider when no provider is passed", () => {
+      const authProvider = { getAuthHeaders: vi.fn(), handleAuthError: vi.fn() }
+      vi.mocked(OpenAPISpecLoader).mockClear()
+
+      new ToolsManager({ ...mockConfig, authProvider })
+
+      expect(OpenAPISpecLoader).toHaveBeenCalledWith(expect.objectContaining({ authProvider }))
+    })
+
+    it("should fall back to static headers when no provider is configured", async () => {
+      vi.mocked(OpenAPISpecLoader).mockClear()
+
+      new ToolsManager({ ...mockConfig, headers: { "X-API-Key": "secret" } })
+
+      const options = vi.mocked(OpenAPISpecLoader).mock.lastCall?.[0]
+      await expect(options?.authProvider?.getAuthHeaders()).resolves.toEqual({
+        "X-API-Key": "secret",
+      })
+    })
+
+    it("should pass no auth provider without headers or an AuthProvider", () => {
+      vi.mocked(OpenAPISpecLoader).mockClear()
+
+      new ToolsManager(mockConfig)
+
+      expect(OpenAPISpecLoader).toHaveBeenCalledWith(
+        expect.objectContaining({ authProvider: undefined }),
+      )
+    })
+  })
+
   describe("Issue #96: HTTPS agent wiring", () => {
     it("should pass the HTTPS agent to the spec loader, scoped to the API base URL", () => {
       const httpsAgent = { mock: "agent" } as any

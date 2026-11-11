@@ -70,10 +70,14 @@ export class OpenAPIServer {
     // TLS settings (mTLS, custom CA, verification) apply both to API calls and to
     // fetching the OpenAPI spec from a URL, which is often served by the same host
     const apiClientOptions: ApiClientOptions = this.createApiClientOptions() || {}
-    this.toolsManager = new ToolsManager(config, { httpsAgent: apiClientOptions.httpsAgent })
 
-    // Use AuthProvider if provided, otherwise fallback to static headers
+    // Use AuthProvider if provided, otherwise fallback to static headers. The same
+    // provider authenticates spec requests the specAuth mode allows (default: same origin)
     const authProviderOrHeaders = config.authProvider || new StaticAuthProvider(config.headers)
+    this.toolsManager = new ToolsManager(config, {
+      httpsAgent: apiClientOptions.httpsAgent,
+      authProvider: authProviderOrHeaders,
+    })
     apiClientOptions.excludeTags = config.excludeTags
     this.apiClient = new ApiClient(
       config.apiBaseUrl,

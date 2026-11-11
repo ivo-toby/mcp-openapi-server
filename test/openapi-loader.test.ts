@@ -6,9 +6,17 @@ import { Tool } from "@modelcontextprotocol/sdk/types.js"
 
 // Mock dependencies
 vi.mock("fs/promises")
-vi.mock("axios")
+vi.mock("axios", async () => {
+  const actual = await vi.importActual<typeof import("axios")>("axios")
+  // Mock requests but keep the real AxiosError, which AuthProvider.handleAuthError receives
+  return {
+    ...actual,
+    default: { ...actual.default, get: vi.fn() },
+  }
+})
 
-import axios from "axios"
+import axios, { AxiosError } from "axios"
+import type { AuthProvider } from "../src/auth-provider"
 import { Agent as HttpsAgent } from "node:https"
 
 vi.mock("js-yaml", async () => {
@@ -359,6 +367,297 @@ paths:
 
       expect(fetch).toHaveBeenCalledWith(url)
       expect(result).toEqual(mockOpenAPISpec)
+    })
+  })
+
+  describe("Issue #110: auth headers on spec requests", () => {
+    const apiOrigin = "https://api.example.com"
+    const url = `${apiOrigin}/openapi.json`
+    const authHeaders = { Authorization: "Bearer secret-token" }
+    let authProvider: AuthProvider & {
+      getAuthHeaders: ReturnType<typeof vi.fn>
+      handleAuthError: ReturnType<typeof vi.fn>
+    }
+
+    const ok = () => ({
+      status: 200,
+      statusText: "OK",
+      headers: {},
+      data: JSON.stringify(mockOpenAPISpec),
+    })
+    const okFetch = () =>
+      ({
+        ok: true,
+        text: async () => JSON.stringify(mockOpenAPISpec),
+      }) as Response
+    const loaderWith = (
+      options: Partial<ConstructorParameters<typeof OpenAPISpecLoader>[0]> = {},
+    ) => new OpenAPISpecLoader({ authProvider, authScope: `${apiOrigin}/v1`, ...options })
+
+    beforeEach(() => {
+      authProvider = {
+        getAuthHeaders: vi.fn().mockResolvedValue(authHeaders),
+        handleAuthError: vi.fn().mockResolvedValue(false),
+      }
+    })
+
+    it("should send auth headers to a spec URL on the API origin", async () => {
+      vi.mocked(axios.get).mockResolvedValueOnce(ok())
+
+      const result = await loaderWith().loadOpenAPISpec(url, "url")
+
+      expect(result).toEqual(mockOpenAPISpec)
+      expect(fetch).not.toHaveBeenCalled()
+      expect(axios.get).toHaveBeenCalledWith(
+        url,
+        expect.objectContaining({
+          headers: authHeaders,
+          httpsAgent: undefined,
+          proxy: false,
+          maxRedirects: 0,
+        }),
+      )
+    })
+
+    it("should match the API origin case-insensitively and ignore the API path", async () => {
+      vi.mocked(axios.get).mockResolvedValueOnce(ok())
+
+      await loaderWith({ authScope: "  HTTPS://API.EXAMPLE.COM:443/v1/  " }).loadOpenAPISpec(
+        url,
+        "url",
+      )
+
+      expect(axios.get).toHaveBeenCalledWith(url, expect.objectContaining({ headers: authHeaders }))
+    })
+
+    it("should not send auth headers to a spec URL on a different origin", async () => {
+      const otherUrl = "https://raw.githubusercontent.com/example/api/main/openapi.json"
+      vi.mocked(fetch).mockResolvedValueOnce(okFetch())
+
+      const result = await loaderWith().loadOpenAPISpec(otherUrl, "url")
+
+      expect(result).toEqual(mockOpenAPISpec)
+      expect(fetch).toHaveBeenCalledWith(otherUrl)
+      expect(axios.get).not.toHaveBeenCalled()
+      expect(authProvider.getAuthHeaders).not.toHaveBeenCalled()
+    })
+
+    it("should treat a different scheme or port as a different origin", async () => {
+      vi.mocked(fetch).mockResolvedValue(okFetch())
+      const loader = loaderWith()
+
+      await loader.loadOpenAPISpec("http://api.example.com/openapi.json", "url")
+      await loader.loadOpenAPISpec("https://api.example.com:8443/openapi.json", "url")
+
+      expect(axios.get).not.toHaveBeenCalled()
+      expect(authProvider.getAuthHeaders).not.toHaveBeenCalled()
+    })
+
+    it("should keep auth headers across same-origin redirects", async () => {
+      vi.mocked(axios.get)
+        .mockResolvedValueOnce({
+          status: 302,
+          statusText: "Found",
+          headers: { location: "/v2/openapi.json" },
+          data: "",
+        })
+        .mockResolvedValueOnce(ok())
+
+      await loaderWith().loadOpenAPISpec(url, "url")
+
+      expect(axios.get).toHaveBeenNthCalledWith(
+        2,
+        `${apiOrigin}/v2/openapi.json`,
+        expect.objectContaining({ headers: authHeaders }),
+      )
+      expect(fetch).not.toHaveBeenCalled()
+    })
+
+    it("should drop auth headers when redirected to another origin", async () => {
+      const target = "https://specs-bucket.s3.amazonaws.com/openapi.json?X-Amz-Signature=abc"
+      vi.mocked(axios.get).mockResolvedValueOnce({
+        status: 307,
+        statusText: "Temporary Redirect",
+        headers: { location: target },
+        data: "",
+      })
+      vi.mocked(fetch).mockResolvedValueOnce(okFetch())
+
+      const result = await loaderWith().loadOpenAPISpec(url, "url")
+
+      expect(result).toEqual(mockOpenAPISpec)
+      expect(axios.get).toHaveBeenCalledTimes(1)
+      expect(fetch).toHaveBeenCalledWith(target)
+    })
+
+    it("should drop auth headers on an https -> http downgrade redirect", async () => {
+      const target = "http://api.example.com/openapi.json"
+      vi.mocked(axios.get).mockResolvedValueOnce({
+        status: 301,
+        statusText: "Moved Permanently",
+        headers: { location: target },
+        data: "",
+      })
+      vi.mocked(fetch).mockResolvedValueOnce(okFetch())
+
+      await loaderWith().loadOpenAPISpec(url, "url")
+
+      expect(axios.get).toHaveBeenCalledTimes(1)
+      expect(fetch).toHaveBeenCalledWith(target)
+    })
+
+    it("should use dynamic headers from the AuthProvider for every request", async () => {
+      authProvider.getAuthHeaders
+        .mockResolvedValueOnce({ Authorization: "Bearer first" })
+        .mockResolvedValueOnce({ Authorization: "Bearer second" })
+      vi.mocked(axios.get)
+        .mockResolvedValueOnce({
+          status: 302,
+          statusText: "Found",
+          headers: { location: "/v2/openapi.json" },
+          data: "",
+        })
+        .mockResolvedValueOnce(ok())
+
+      await loaderWith().loadOpenAPISpec(url, "url")
+
+      expect(vi.mocked(axios.get).mock.calls[0][1]?.headers).toEqual({
+        Authorization: "Bearer first",
+      })
+      expect(vi.mocked(axios.get).mock.calls[1][1]?.headers).toEqual({
+        Authorization: "Bearer second",
+      })
+    })
+
+    it("should retry once with fresh headers when handleAuthError returns true", async () => {
+      authProvider.getAuthHeaders
+        .mockResolvedValueOnce({ Authorization: "Bearer expired" })
+        .mockResolvedValueOnce({ Authorization: "Bearer refreshed" })
+      authProvider.handleAuthError.mockResolvedValueOnce(true)
+      vi.mocked(axios.get)
+        .mockResolvedValueOnce({ status: 401, statusText: "Unauthorized", headers: {}, data: "" })
+        .mockResolvedValueOnce(ok())
+
+      const result = await loaderWith().loadOpenAPISpec(url, "url")
+
+      expect(result).toEqual(mockOpenAPISpec)
+      expect(authProvider.handleAuthError).toHaveBeenCalledTimes(1)
+      const error = authProvider.handleAuthError.mock.calls[0][0]
+      expect(error).toBeInstanceOf(AxiosError)
+      expect(error.response?.status).toBe(401)
+      expect(vi.mocked(axios.get).mock.calls[1][1]?.headers).toEqual({
+        Authorization: "Bearer refreshed",
+      })
+    })
+
+    it("should fail with the HTTP status when handleAuthError returns false", async () => {
+      vi.mocked(axios.get).mockResolvedValueOnce({
+        status: 403,
+        statusText: "Forbidden",
+        headers: {},
+        data: "",
+      })
+
+      await expect(loaderWith().loadOpenAPISpec(url, "url")).rejects.toThrow(
+        "Failed to load OpenAPI spec from url: HTTP 403: Forbidden",
+      )
+      expect(authProvider.handleAuthError).toHaveBeenCalledTimes(1)
+      expect(axios.get).toHaveBeenCalledTimes(1)
+    })
+
+    it("should only retry once when the retried request is also rejected", async () => {
+      authProvider.handleAuthError.mockResolvedValue(true)
+      vi.mocked(axios.get).mockResolvedValue({
+        status: 401,
+        statusText: "Unauthorized",
+        headers: {},
+        data: "",
+      })
+
+      await expect(loaderWith().loadOpenAPISpec(url, "url")).rejects.toThrow(
+        "Failed to load OpenAPI spec from url: HTTP 401: Unauthorized",
+      )
+      expect(authProvider.handleAuthError).toHaveBeenCalledTimes(1)
+      expect(axios.get).toHaveBeenCalledTimes(2)
+    })
+
+    it("should surface errors thrown by getAuthHeaders", async () => {
+      authProvider.getAuthHeaders.mockRejectedValueOnce(new Error("Token expired, please log in"))
+
+      await expect(loaderWith().loadOpenAPISpec(url, "url")).rejects.toThrow(
+        "Failed to load OpenAPI spec from url: Token expired, please log in",
+      )
+    })
+
+    it("should keep using fetch when the auth provider returns no headers", async () => {
+      authProvider.getAuthHeaders.mockResolvedValue({})
+      vi.mocked(fetch).mockResolvedValueOnce(okFetch())
+
+      await loaderWith().loadOpenAPISpec(url, "url")
+
+      expect(fetch).toHaveBeenCalledWith(url)
+      expect(axios.get).not.toHaveBeenCalled()
+    })
+
+    it("should never send auth headers in 'never' mode", async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(okFetch())
+
+      await loaderWith({ specAuth: "never" }).loadOpenAPISpec(url, "url")
+
+      expect(fetch).toHaveBeenCalledWith(url)
+      expect(axios.get).not.toHaveBeenCalled()
+      expect(authProvider.getAuthHeaders).not.toHaveBeenCalled()
+    })
+
+    it("should send auth headers to the spec URL's own origin in 'always' mode", async () => {
+      const otherUrl = "https://specs.example.org/api/openapi.json"
+      vi.mocked(axios.get).mockResolvedValueOnce(ok())
+
+      await loaderWith({ specAuth: "always" }).loadOpenAPISpec(otherUrl, "url")
+
+      expect(axios.get).toHaveBeenCalledWith(
+        otherUrl,
+        expect.objectContaining({ headers: authHeaders }),
+      )
+    })
+
+    it("should drop auth headers on a cross-origin redirect in 'always' mode", async () => {
+      const otherUrl = "https://specs.example.org/api/openapi.json"
+      const target = "https://cdn.example.net/openapi.json"
+      vi.mocked(axios.get).mockResolvedValueOnce({
+        status: 302,
+        statusText: "Found",
+        headers: { location: target },
+        data: "",
+      })
+      vi.mocked(fetch).mockResolvedValueOnce(okFetch())
+
+      await loaderWith({ specAuth: "always" }).loadOpenAPISpec(otherUrl, "url")
+
+      expect(axios.get).toHaveBeenCalledTimes(1)
+      expect(fetch).toHaveBeenCalledWith(target)
+    })
+
+    it("should send no auth headers in 'same-origin' mode without an auth scope", async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(okFetch())
+
+      await new OpenAPISpecLoader({ authProvider }).loadOpenAPISpec(url, "url")
+
+      expect(fetch).toHaveBeenCalledWith(url)
+      expect(authProvider.getAuthHeaders).not.toHaveBeenCalled()
+    })
+
+    it("should combine auth headers with the HTTPS agent on the API origin", async () => {
+      const httpsAgent = new HttpsAgent()
+      vi.mocked(axios.get).mockResolvedValueOnce(ok())
+
+      await loaderWith({ httpsAgent, httpsAgentScope: apiOrigin }).loadOpenAPISpec(url, "url")
+
+      expect(axios.get).toHaveBeenCalledWith(
+        url,
+        expect.objectContaining({ headers: authHeaders, httpsAgent }),
+      )
+      httpsAgent.destroy()
     })
   })
 
