@@ -28,9 +28,6 @@ export interface ExtendedTool extends Tool {
  */
 export type SpecInputMethod = "url" | "file" | "stdin" | "inline"
 
-/**
- * Class to load and parse OpenAPI specifications
- */
 const hasOwn = (obj: object, key: string): boolean => Object.prototype.hasOwnProperty.call(obj, key)
 
 /**
@@ -50,6 +47,9 @@ function uniqueBodyParamName(
   return candidate
 }
 
+/**
+ * Class to load and parse OpenAPI specifications
+ */
 export class OpenAPISpecLoader {
   /**
    * Disable name optimization
