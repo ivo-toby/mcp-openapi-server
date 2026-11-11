@@ -130,7 +130,39 @@ export class OpenAPISpecLoader {
     if (this.httpsAgent && this.shouldUseHttpsAgent(url)) {
       return await this.loadFromUrlWithAgent(url, this.httpsAgent)
     }
-    return await this.fetchText(url)
+    return await this.fetchWithoutAgent(url)
+  }
+
+  /**
+   * Fetch a spec URL that the HTTPS agent does not apply to. When TLS options are
+   * configured but skipped for this URL, say so: otherwise a TLS failure only shows
+   * up as a generic "fetch failed".
+   */
+  private async fetchWithoutAgent(url: string): Promise<string> {
+    if (!this.httpsAgent) {
+      return await this.fetchText(url)
+    }
+
+    const notice = this.describeSkippedTlsOptions(url)
+    this.logger.warn(`Warning: ${notice}`)
+    try {
+      return await this.fetchText(url)
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new Error(`${error.message.trim()} (${notice})`)
+      }
+      throw error
+    }
+  }
+
+  private describeSkippedTlsOptions(url: string): string {
+    const scope =
+      typeof this.httpsAgentOrigin === "string"
+        ? `https:// spec URLs on the API base URL origin (${this.httpsAgentOrigin})`
+        : this.httpsAgentOrigin === null
+          ? "spec URLs on a valid API base URL origin"
+          : "https:// spec URLs"
+    return `TLS options (client certificate, CA, reject-unauthorized) were not applied to ${url}; they only apply to ${scope}`
   }
 
   /**
@@ -174,7 +206,7 @@ export class OpenAPISpecLoader {
       if (response.status >= 300 && response.status < 400 && location) {
         currentUrl = new URL(String(location), currentUrl).toString()
         if (!this.shouldUseHttpsAgent(currentUrl)) {
-          return await this.fetchText(currentUrl)
+          return await this.fetchWithoutAgent(currentUrl)
         }
         continue
       }

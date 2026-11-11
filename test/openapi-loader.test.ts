@@ -558,6 +558,66 @@ paths:
       )
     })
 
+    it("should warn when TLS options are configured but the spec URL is off-origin", async () => {
+      const otherUrl = "https://secure.example.com:8443/openapi"
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+      vi.mocked(fetch).mockResolvedValueOnce(okFetch())
+
+      await loader.loadOpenAPISpec(otherUrl, "url")
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `TLS options (client certificate, CA, reject-unauthorized) were not applied to ${otherUrl}; they only apply to https:// spec URLs on the API base URL origin (${apiOrigin})`,
+        ),
+      )
+      warnSpy.mockRestore()
+    })
+
+    it("should explain skipped TLS options when an off-origin fetch fails", async () => {
+      const otherUrl = "https://secure.example.com:8443/openapi"
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+      vi.mocked(fetch).mockRejectedValueOnce(new TypeError("fetch failed"))
+
+      const error = await loader.loadOpenAPISpec(otherUrl, "url").catch((e: Error) => e)
+      warnSpy.mockRestore()
+
+      expect((error as Error).message).toBe(
+        `Failed to load OpenAPI spec from url: fetch failed (TLS options (client certificate, CA, reject-unauthorized) were not applied to ${otherUrl}; they only apply to https:// spec URLs on the API base URL origin (${apiOrigin}))`,
+      )
+    })
+
+    it("should explain skipped TLS options when a cross-origin redirect target fails", async () => {
+      const target = "https://cdn.example.net/openapi.json"
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+      vi.mocked(axios.get).mockResolvedValueOnce({
+        status: 302,
+        statusText: "Found",
+        headers: { location: target },
+        data: "",
+      })
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+      } as Response)
+
+      await expect(loader.loadOpenAPISpec(url, "url")).rejects.toThrow(
+        `HTTP 404: Not Found (TLS options (client certificate, CA, reject-unauthorized) were not applied to ${target};`,
+      )
+      warnSpy.mockRestore()
+    })
+
+    it("should not warn or annotate errors when no TLS options are configured", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+      vi.mocked(fetch).mockRejectedValueOnce(new TypeError("fetch failed"))
+
+      await expect(openAPILoader.loadOpenAPISpec(url, "url")).rejects.toThrow(
+        /^Failed to load OpenAPI spec from url: fetch failed$/,
+      )
+      expect(warnSpy).not.toHaveBeenCalled()
+      warnSpy.mockRestore()
+    })
+
     it("should keep using fetch when no HTTPS agent is configured", async () => {
       vi.mocked(fetch).mockResolvedValueOnce(okFetch())
 

@@ -175,7 +175,7 @@ npx @ivotoby/openapi-mcp-server \
 
 This is orthogonal to HTTP-level auth, so mTLS can be combined with static headers or an `AuthProvider`.
 
-TLS-related options only apply when `--api-base-url` uses `https://`. They are also used to fetch the OpenAPI spec when `--openapi-spec` is an `https://` URL on the **same origin** (scheme, host and port) as `--api-base-url`, so a spec served by the API behind mTLS or a private CA loads with the same client certificate and CA. Spec URLs on any other origin, including redirect targets, are fetched without these settings. That way your client certificate, private CA and `--reject-unauthorized false` never apply to unrelated hosts.
+TLS-related options only apply when `--api-base-url` uses `https://`. They are also used to fetch the OpenAPI spec when `--openapi-spec` is an `https://` URL on the **same origin** (scheme, host and port) as `--api-base-url`, so a spec served by the API behind mTLS or a private CA loads with the same client certificate and CA. Spec URLs on any other origin, including redirect targets, are fetched without these settings. That way your client certificate, private CA and `--reject-unauthorized false` never apply to unrelated hosts. When TLS options are set but skipped for the spec URL, the server logs a warning and adds the reason to any load error.
 
 For private CAs or encrypted keys:
 
