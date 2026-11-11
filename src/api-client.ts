@@ -6,6 +6,22 @@ import { parseToolId as parseToolIdUtil, generateToolId } from "./utils/tool-id.
 import { isValidHttpMethod, isGetLikeMethod, VALID_HTTP_METHODS } from "./utils/http-methods.js"
 import { OpenAPISpecLoader } from "./openapi-loader.js"
 import { OpenAPIV3 } from "openapi-types"
+import {
+  BinaryResponse,
+  binaryRequestContentType,
+  decodeBase64Body,
+  decodeResponseBody,
+  isBinaryRequestBody,
+  isJsonMediaType,
+  normalizeMediaType,
+} from "./utils/media-types.js"
+
+/**
+ * How the `body` tool argument maps onto the HTTP request body (set by OpenAPISpecLoader)
+ * - "binary": `body` is base64 and is sent as raw bytes
+ * - "wrapped": `body` is the whole (non-object) request body, not a property of it
+ */
+type BodyEncoding = "binary" | "wrapped" | undefined
 
 /**
  * System-controlled HTTP headers that should NEVER be set via user parameters
@@ -145,7 +161,10 @@ export class ApiClient {
     return resolvedRequestBody
   }
 
-  private getRequestContentType(method: string, path: string): string | undefined {
+  private getRequestBodyInfo(
+    method: string,
+    path: string,
+  ): { contentType: string; schema?: OpenAPIV3.SchemaObject } | undefined {
     const pathItem = this.openApiSpec?.paths[path]
     const normalizedMethod = method.toLowerCase()
 
@@ -169,11 +188,127 @@ export class ApiClient {
       return undefined
     }
 
-    if (content["application/json"]) {
-      return "application/json"
+    const contentType = content["application/json"] ? "application/json" : Object.keys(content)[0]
+    if (!contentType) {
+      return undefined
     }
 
-    return Object.keys(content)[0]
+    let schema = content[contentType]?.schema
+    if (schema && "$ref" in schema) {
+      const refPrefix = "#/components/schemas/"
+      const resolved = schema.$ref.startsWith(refPrefix)
+        ? this.openApiSpec?.components?.schemas?.[schema.$ref.slice(refPrefix.length)]
+        : undefined
+      schema = resolved && !("$ref" in resolved) ? resolved : undefined
+    }
+
+    return { contentType, schema: schema as OpenAPIV3.SchemaObject | undefined }
+  }
+
+  /**
+   * Build the request body and Content-Type for a POST-like request.
+   *
+   * @param bodyParams - Tool arguments left over after path/query/header extraction
+   * @param contentType - Content-Type declared by the OpenAPI spec (if any)
+   * @param encoding - How the `body` argument maps onto the request body
+   */
+  private buildRequestBody(
+    bodyParams: Record<string, any>,
+    contentType: string | undefined,
+    encoding: BodyEncoding,
+  ): { data: unknown; contentType: string } {
+    const hasBody = Object.prototype.hasOwnProperty.call(bodyParams, "body")
+
+    if (encoding === "binary") {
+      // Issue #105: send raw bytes, not a JSON object wrapping a string
+      return {
+        data:
+          hasBody && bodyParams.body !== undefined ? decodeBase64Body(bodyParams.body) : undefined,
+        contentType: binaryRequestContentType(contentType),
+      }
+    }
+
+    const effectiveContentType = contentType || "application/json"
+
+    if (encoding === "wrapped" && hasBody) {
+      const value = bodyParams.body
+      const mediaType = normalizeMediaType(effectiveContentType)
+      let data: unknown
+      if (mediaType && isJsonMediaType(mediaType)) {
+        // Serialize ourselves so primitives like "123" are not re-interpreted by axios
+        data = JSON.stringify(value)
+      } else if (typeof value === "string") {
+        data = value
+      } else {
+        data = JSON.stringify(value)
+      }
+      return { data, contentType: effectiveContentType }
+    }
+
+    return {
+      data: Object.keys(bodyParams).length > 0 ? bodyParams : {},
+      contentType: effectiveContentType,
+    }
+  }
+
+  /**
+   * Execute a request, reading the body as raw bytes and decoding it by Content-Type.
+   * Binary payloads are returned as {@link BinaryResponse} instead of a corrupted string.
+   */
+  private async sendRequest(config: Record<string, any>, useRequestMethod: boolean): Promise<any> {
+    config.responseType = "arraybuffer"
+    const response = useRequestMethod
+      ? await this.axiosInstance.request(config)
+      : await this.axiosInstance(config)
+    return decodeResponseBody(
+      response.data,
+      this.getHeader(response.headers, "content-type"),
+      this.getRequestUri(config),
+    )
+  }
+
+  private getHeader(headers: unknown, name: string): unknown {
+    if (!headers || typeof headers !== "object") {
+      return undefined
+    }
+    const getter = (headers as { get?: unknown }).get
+    if (typeof getter === "function") {
+      const value = getter.call(headers, name)
+      if (value !== undefined && value !== null) {
+        return value
+      }
+    }
+    const entry = Object.entries(headers).find(([key]) => key.toLowerCase() === name)
+    return entry?.[1]
+  }
+
+  private getRequestUri(config: Record<string, any>): string | undefined {
+    try {
+      if (typeof (this.axiosInstance as any).getUri === "function") {
+        return this.axiosInstance.getUri(config)
+      }
+    } catch {
+      // Fall through to the relative URL
+    }
+    return typeof config.url === "string" ? config.url : undefined
+  }
+
+  /**
+   * Error responses are also read as raw bytes; decode them so error messages and
+   * AuthProvider.handleAuthError() see text/JSON rather than a Buffer.
+   */
+  private decodeErrorResponse(error: AxiosError): void {
+    if (!error.response) {
+      return
+    }
+    const decoded = decodeResponseBody(
+      error.response.data,
+      this.getHeader(error.response.headers, "content-type"),
+    )
+    error.response.data =
+      decoded instanceof BinaryResponse
+        ? `[binary response: ${decoded.mimeType}, ${decoded.size} bytes]`
+        : decoded
   }
 
   /**
@@ -361,21 +496,27 @@ export class ApiClient {
           }
         }
       } else {
-        // For POST-like methods, remaining parameters go in the request body
-        config.data = Object.keys(paramsCopy).length > 0 ? paramsCopy : {}
-
-        // Set Content-Type from OpenAPI spec metadata, defaulting to application/json
-        const contentType = (toolDef?.inputSchema as any)?.["x-content-type"] || "application/json"
+        // For POST-like methods, remaining parameters go in the request body.
+        // Content-Type comes from OpenAPI spec metadata, defaulting to application/json
+        const inputSchema = toolDef?.inputSchema as any
+        const { data, contentType } = this.buildRequestBody(
+          paramsCopy,
+          inputSchema?.["x-content-type"],
+          inputSchema?.["x-body-encoding"],
+        )
+        if (data !== undefined) {
+          config.data = data
+        }
         config.headers["Content-Type"] = contentType
       }
 
       // Execute the request
-      const response = await this.axiosInstance(config)
-      return response.data
+      return await this.sendRequest(config, false)
     } catch (error) {
       // Handle errors
       if (axios.isAxiosError(error)) {
         const axiosError = error as AxiosError
+        this.decodeErrorResponse(axiosError)
 
         // Check if it's an authentication error and we haven't already retried
         if (!isRetry && isAuthError(axiosError)) {
@@ -706,18 +847,40 @@ export class ApiClient {
       config.params = this.processQueryParams(params)
     } else {
       // For POST-like methods, parameters go in the request body
-      config.data = params
-      config.headers["Content-Type"] =
-        this.getRequestContentType(method, path) || "application/json"
+      const bodyInfo = this.getRequestBodyInfo(method, path)
+      const schemaType = bodyInfo?.schema?.type
+      let encoding: BodyEncoding
+      if (isBinaryRequestBody(bodyInfo?.contentType, bodyInfo?.schema)) {
+        encoding = "binary"
+      } else if (
+        schemaType &&
+        schemaType !== "object" &&
+        Object.keys(params).length === 1 &&
+        Object.prototype.hasOwnProperty.call(params, "body")
+      ) {
+        // Non-object body (string, array, ...) passed as { body: ... }
+        encoding = "wrapped"
+      }
+
+      if (encoding) {
+        const { data, contentType } = this.buildRequestBody(params, bodyInfo?.contentType, encoding)
+        if (data !== undefined) {
+          config.data = data
+        }
+        config.headers["Content-Type"] = contentType
+      } else {
+        config.data = params
+        config.headers["Content-Type"] = bodyInfo?.contentType || "application/json"
+      }
     }
 
     try {
       // Execute the request
-      const response = await this.axiosInstance.request(config)
-      return response.data
+      return await this.sendRequest(config, true)
     } catch (error) {
       if (axios.isAxiosError(error)) {
         const axiosError = error as AxiosError
+        this.decodeErrorResponse(axiosError)
         throw new Error(
           `API request failed: ${axiosError.message}${
             axiosError.response

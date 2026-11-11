@@ -6,6 +6,7 @@ import crypto from "crypto"
 import { REVISED_COMMON_WORDS_TO_REMOVE, WORD_ABBREVIATIONS } from "./utils/abbreviations.js"
 import { generateToolId } from "./utils/tool-id.js"
 import { Logger } from "./utils/logger.js"
+import { isBinaryRequestBody } from "./utils/media-types.js"
 
 /**
  * Extended Tool interface with metadata for filtering
@@ -624,13 +625,35 @@ export class OpenAPISpecLoader {
             selectedContentType = firstContentType
           }
 
-          if (mediaTypeObj?.schema) {
-            // Handle schema inlining with proper types
-            const inlinedSchema = this.inlineSchema(
-              mediaTypeObj.schema as OpenAPIV3.SchemaObject | OpenAPIV3.ReferenceObject,
-              spec.components?.schemas,
-              new Set<string>(),
-            )
+          const inlinedBodySchema = mediaTypeObj?.schema
+            ? this.inlineSchema(
+                mediaTypeObj.schema as OpenAPIV3.SchemaObject | OpenAPIV3.ReferenceObject,
+                spec.components?.schemas,
+                new Set<string>(),
+              )
+            : undefined
+
+          if (mediaTypeObj && isBinaryRequestBody(selectedContentType, inlinedBodySchema)) {
+            // Issue #105: raw byte uploads (e.g. application/octet-stream, image/png).
+            // The caller passes the payload as base64; ApiClient decodes and sends raw bytes.
+            const bodyDescription =
+              inlinedBodySchema?.description ||
+              (requestBodyObj as OpenAPIV3.RequestBodyObject).description
+            tool.inputSchema.properties!["body"] = {
+              type: "string",
+              contentEncoding: "base64",
+              contentMediaType: selectedContentType,
+              description:
+                `Base64-encoded request body, sent as raw bytes with Content-Type ${selectedContentType}. ` +
+                `A data URL (data:<type>;base64,<payload>) is also accepted.` +
+                (bodyDescription ? ` ${bodyDescription}` : ""),
+            } as any
+            if (requestBodyObj.required === true) {
+              requiredParams.push("body")
+            }
+            ;(tool.inputSchema as any)["x-body-encoding"] = "binary"
+          } else if (inlinedBodySchema) {
+            const inlinedSchema = inlinedBodySchema
 
             // Handle different schema types appropriately
             if (inlinedSchema.oneOf || inlinedSchema.anyOf) {
@@ -674,6 +697,8 @@ export class OpenAPISpecLoader {
               // Use body wrapper for other non-object schemas (primitives, arrays, etc.)
               tool.inputSchema.properties!["body"] = inlinedSchema
               requiredParams.push("body")
+              // The `body` property *is* the request body; ApiClient must not wrap it in an object
+              ;(tool.inputSchema as any)["x-body-encoding"] = "wrapped"
             }
           }
 

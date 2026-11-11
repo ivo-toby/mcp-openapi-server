@@ -265,6 +265,7 @@ describe("ApiClient Dynamic Meta-Tools", () => {
         url: "/users",
         headers: {},
         params: { page: 1 },
+        responseType: "arraybuffer",
       })
     })
 
@@ -342,6 +343,7 @@ describe("ApiClient Dynamic Meta-Tools", () => {
         url: "/reports",
         headers: { "Content-Type": "application/json" },
         data: { name: "Quarterly" },
+        responseType: "arraybuffer",
       })
     })
   })
