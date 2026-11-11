@@ -265,6 +265,7 @@ describe("ApiClient Dynamic Meta-Tools", () => {
         url: "/users",
         headers: {},
         params: { page: 1 },
+        responseType: "arraybuffer",
       })
     })
 
@@ -342,6 +343,7 @@ describe("ApiClient Dynamic Meta-Tools", () => {
         url: "/reports",
         headers: { "Content-Type": "application/json" },
         data: { name: "Quarterly" },
+        responseType: "arraybuffer",
       })
     })
 
@@ -413,6 +415,7 @@ describe("ApiClient Dynamic Meta-Tools", () => {
 
         expect(result).toEqual({ ok: true })
         expect(mockAxios.request).toHaveBeenCalledWith({
+          responseType: "arraybuffer",
           method: "get",
           url: "/users/123",
           headers: {},
@@ -428,6 +431,7 @@ describe("ApiClient Dynamic Meta-Tools", () => {
         })
 
         expect(mockAxios.request).toHaveBeenCalledWith({
+          responseType: "arraybuffer",
           method: "get",
           url: "/users/123",
           headers: {},
@@ -491,6 +495,7 @@ describe("ApiClient Dynamic Meta-Tools", () => {
         })
 
         expect(mockAxios.request).toHaveBeenCalledWith({
+          responseType: "arraybuffer",
           method: "put",
           url: "/users/7/posts/99",
           headers: { "Content-Type": "application/merge-patch+json" },
@@ -608,6 +613,7 @@ describe("ApiClient Dynamic Meta-Tools", () => {
         })
 
         expect(mockAxios.request).toHaveBeenCalledWith({
+          responseType: "arraybuffer",
           method: "get",
           url: "/users/123",
           headers: {},
@@ -623,6 +629,7 @@ describe("ApiClient Dynamic Meta-Tools", () => {
         })
 
         expect(mockAxios.request).toHaveBeenCalledWith({
+          responseType: "arraybuffer",
           method: "put",
           url: "/users/7/posts/99",
           headers: { "Content-Type": "application/merge-patch+json" },

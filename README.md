@@ -973,10 +973,23 @@ The server intelligently merges parameters and request bodies into a unified inp
 
 The MCP server handles various OpenAPI schema complexities:
 
-- **Primitive Type Bodies**: Wraps non-object request bodies in a "body" property
+- **Primitive Type Bodies**: Exposes non-object request bodies as a "body" property; its value is sent as the request body itself (not wrapped in an object)
 - **Object Bodies**: Flattens object properties into the tool's input schema
 - **Array Bodies**: Properly handles array schemas with their nested item definitions
 - **Required Properties**: Tracks and preserves which parameters and properties are required
+
+### Binary Request and Response Bodies
+
+- **Binary uploads**: Operations whose request body is binary (e.g. `application/octet-stream`, `image/png`, or any `type: string, format: binary` schema) get a `body` argument that takes **base64** (a `data:<type>;base64,...` URL is also accepted). The bytes are decoded and sent raw with the declared `Content-Type`.
+- **Binary responses**: Responses are read as raw bytes and decoded by `Content-Type`:
+  - JSON → parsed and returned as JSON text
+  - Text types (`text/*`, XML, YAML, ...) → returned verbatim as `text` content
+  - `image/*` → MCP `image` content
+  - `audio/*` → MCP `audio` content
+  - Anything else (PDF, ZIP, `application/octet-stream`, ...) → an embedded `resource` with a base64 `blob`
+- **Resource URIs** are `api-response://<request path>`: the upstream host, credentials and query string are never exposed to the MCP client.
+- **Dynamic mode**: pass non-object bodies as `params.body` (base64 for binary bodies) to `INVOKE-API-ENDPOINT`; `GET-API-ENDPOINT-SCHEMA` reports this as `bodyParameter`.
+- **Library usage**: `ApiClient.executeApiCall()` returns a `BinaryResponse` (`data: Buffer`, `mimeType`, `uri`) for binary responses.
 
 ---
 

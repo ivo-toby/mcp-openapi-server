@@ -82,6 +82,7 @@ export * from "./prompt-types"
 export * from "./resource-types"
 export * from "./types/extra-tools"
 export * from "./utils/logger"
+export { BinaryResponse } from "./utils/media-types"
 
 // Export the main function for programmatic usage
 export { main }

@@ -6,6 +6,22 @@ import { parseToolId as parseToolIdUtil, generateToolId } from "./utils/tool-id.
 import { isValidHttpMethod, isGetLikeMethod, VALID_HTTP_METHODS } from "./utils/http-methods.js"
 import { OpenAPISpecLoader } from "./openapi-loader.js"
 import { OpenAPIV3 } from "openapi-types"
+import {
+  BinaryResponse,
+  binaryRequestContentType,
+  decodeBase64Body,
+  decodeResponseBody,
+  isBinaryRequestBody,
+} from "./utils/media-types.js"
+
+/**
+ * How a dynamic-mode caller passes an operation's request body via INVOKE-API-ENDPOINT,
+ * derived from the OpenAPI spec (generated tools use the loader's x-body-wrapper /
+ * x-body-encoding metadata instead):
+ * - "binary": `params.body` is base64 and is sent as raw bytes
+ * - "wrapped": `params.body` is the whole (non-object) request body, not a property of it
+ */
+type BodyEncoding = "binary" | "wrapped" | undefined
 
 /**
  * System-controlled HTTP headers that should NEVER be set via user parameters
@@ -356,7 +372,10 @@ export class ApiClient {
     return { ...merged, ...resolved.pathParams }
   }
 
-  private getRequestContentType(method: string, path: string): string | undefined {
+  private getRequestBodyInfo(
+    method: string,
+    path: string,
+  ): { contentType: string; schema?: OpenAPIV3.SchemaObject } | undefined {
     const pathItem = this.openApiSpec?.paths[path]
     const normalizedMethod = method.toLowerCase()
 
@@ -380,11 +399,143 @@ export class ApiClient {
       return undefined
     }
 
-    if (content["application/json"]) {
-      return "application/json"
+    const contentType = content["application/json"] ? "application/json" : Object.keys(content)[0]
+    if (!contentType) {
+      return undefined
     }
 
-    return Object.keys(content)[0]
+    let schema = content[contentType]?.schema
+    if (schema && "$ref" in schema) {
+      const refPrefix = "#/components/schemas/"
+      const resolved = schema.$ref.startsWith(refPrefix)
+        ? this.openApiSpec?.components?.schemas?.[schema.$ref.slice(refPrefix.length)]
+        : undefined
+      schema = resolved && !("$ref" in resolved) ? resolved : undefined
+    }
+
+    return { contentType, schema: schema as OpenAPIV3.SchemaObject | undefined }
+  }
+
+  /**
+   * How a dynamic-mode caller must pass the request body of an operation (see {@link BodyEncoding}).
+   */
+  private getSpecBodyEncoding(
+    bodyInfo: { contentType: string; schema?: OpenAPIV3.SchemaObject } | undefined,
+  ): BodyEncoding {
+    if (!bodyInfo) {
+      return undefined
+    }
+    if (isBinaryRequestBody(bodyInfo.contentType, bodyInfo.schema)) {
+      return "binary"
+    }
+    const schemaType = bodyInfo.schema?.type
+    if (schemaType && schemaType !== "object") {
+      return "wrapped"
+    }
+    return undefined
+  }
+
+  /**
+   * Build a binary request body (Issue #105): the payload is passed base64-encoded in the
+   * wrapper argument and sent as raw bytes with the declared Content-Type.
+   *
+   * @param params - Tool arguments left over after path/query/header extraction
+   * @param wrapperKey - Name of the argument that carries the base64 payload
+   * @param contentType - Content-Type declared by the OpenAPI spec (if any)
+   */
+  private buildBinaryRequestBody(
+    params: Record<string, any>,
+    wrapperKey: string,
+    contentType: string | undefined,
+  ): { data: Buffer | undefined; contentType: string } {
+    const hasBody = Object.prototype.hasOwnProperty.call(params, wrapperKey)
+    if (!hasBody && Object.keys(params).length > 0) {
+      throw new Error(
+        `This endpoint expects a binary request body: pass it base64-encoded in the "${wrapperKey}" ` +
+          `parameter (got: ${Object.keys(params).join(", ")})`,
+      )
+    }
+    return {
+      data:
+        hasBody && params[wrapperKey] !== undefined
+          ? decodeBase64Body(params[wrapperKey], wrapperKey)
+          : undefined,
+      contentType: binaryRequestContentType(contentType),
+    }
+  }
+
+  /**
+   * Execute a request, reading the body as raw bytes and decoding it by Content-Type.
+   * Binary payloads are returned as {@link BinaryResponse} instead of a corrupted string.
+   */
+  private async sendRequest(config: Record<string, any>, useRequestMethod: boolean): Promise<any> {
+    config.responseType = "arraybuffer"
+    const response = useRequestMethod
+      ? await this.axiosInstance.request(config)
+      : await this.axiosInstance(config)
+    return decodeResponseBody(
+      response.data,
+      this.getHeader(response.headers, "content-type"),
+      this.getResponseUri(config),
+    )
+  }
+
+  private getHeader(headers: unknown, name: string): unknown {
+    if (!headers || typeof headers !== "object") {
+      return undefined
+    }
+    const getter = (headers as { get?: unknown }).get
+    if (typeof getter === "function") {
+      const value = getter.call(headers, name)
+      if (value !== undefined && value !== null) {
+        return value
+      }
+    }
+    const entry = Object.entries(headers).find(([key]) => key.toLowerCase() === name)
+    return entry?.[1]
+  }
+
+  /**
+   * URI identifying a binary response for MCP embedded resources.
+   * Uses only the request path: the upstream host, credentials in the base URL
+   * and query string are never exposed to the MCP client.
+   */
+  private getResponseUri(config: Record<string, any>): string | undefined {
+    let fullUrl: string | undefined
+    try {
+      if (typeof (this.axiosInstance as any).getUri === "function") {
+        fullUrl = this.axiosInstance.getUri(config)
+      }
+    } catch {
+      // Fall back to the relative URL below
+    }
+    fullUrl ??= typeof config.url === "string" ? config.url : undefined
+    if (!fullUrl) {
+      return undefined
+    }
+    try {
+      return `api-response://${new URL(fullUrl, "http://placeholder/").pathname}`
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * Error responses are also read as raw bytes; decode them so error messages and
+   * AuthProvider.handleAuthError() see text/JSON rather than a Buffer.
+   */
+  private decodeErrorResponse(error: AxiosError): void {
+    if (!error.response) {
+      return
+    }
+    const decoded = decodeResponseBody(
+      error.response.data,
+      this.getHeader(error.response.headers, "content-type"),
+    )
+    error.response.data =
+      decoded instanceof BinaryResponse
+        ? `[binary response: ${decoded.mimeType}, ${decoded.size} bytes]`
+        : decoded
   }
 
   /**
@@ -577,20 +728,33 @@ export class ApiClient {
         // For POST-like methods, remaining parameters go in the request body
         const inputSchema = toolDef?.inputSchema as Record<string, any> | undefined
 
-        // Set Content-Type from OpenAPI spec metadata, defaulting to application/json
-        const contentType = inputSchema?.["x-content-type"] || "application/json"
-        config.headers["Content-Type"] = contentType
+        if (inputSchema?.["x-body-encoding"] === "binary") {
+          // Issue #105: base64 argument → raw bytes
+          const { data, contentType } = this.buildBinaryRequestBody(
+            paramsCopy,
+            inputSchema["x-body-wrapper"] || "body",
+            inputSchema["x-content-type"],
+          )
+          config.headers["Content-Type"] = contentType
+          if (data !== undefined) {
+            config.data = data
+          }
+        } else {
+          // Set Content-Type from OpenAPI spec metadata, defaulting to application/json
+          const contentType = inputSchema?.["x-content-type"] || "application/json"
+          config.headers["Content-Type"] = contentType
 
-        config.data = this.buildRequestBody(inputSchema, paramsCopy, contentType)
+          config.data = this.buildRequestBody(inputSchema, paramsCopy, contentType)
+        }
       }
 
       // Execute the request
-      const response = await this.axiosInstance(config)
-      return response.data
+      return await this.sendRequest(config, false)
     } catch (error) {
       // Handle errors
       if (axios.isAxiosError(error)) {
         const axiosError = error as AxiosError
+        this.decodeErrorResponse(axiosError)
 
         // Check if it's an authentication error and we haven't already retried
         if (!isRetry && isAuthError(axiosError)) {
@@ -835,7 +999,7 @@ export class ApiClient {
           continue
         }
 
-        operations.push({
+        const operationInfo: Record<string, any> = {
           method: method.toUpperCase(),
           operationId: op.operationId || "",
           summary: op.summary || "",
@@ -844,7 +1008,24 @@ export class ApiClient {
           requestBody: op.requestBody || null,
           responses: op.responses || {},
           tags: op.tags || [],
-        })
+        }
+
+        // Tell callers how to pass non-object bodies through INVOKE-API-ENDPOINT
+        const bodyEncoding = this.getSpecBodyEncoding(this.getRequestBodyInfo(method, resolvedPath))
+        if (bodyEncoding === "binary") {
+          operationInfo.bodyParameter = {
+            name: "body",
+            encoding: "base64",
+            note: "Pass the request body base64-encoded as params.body; it is sent as raw bytes.",
+          }
+        } else if (bodyEncoding === "wrapped") {
+          operationInfo.bodyParameter = {
+            name: "body",
+            note: "Pass the whole (non-object) request body as params.body.",
+          }
+        }
+
+        operations.push(operationInfo)
       }
 
       if (operations.length === 0) {
@@ -1042,18 +1223,44 @@ export class ApiClient {
       if (Object.keys(queryParams).length > 0) {
         config.params = this.processQueryParams(queryParams)
       }
-      config.data = bodyParams
-      config.headers["Content-Type"] =
-        this.getRequestContentType(method, path) || "application/json"
+
+      const bodyInfo = this.getRequestBodyInfo(method, path)
+      let encoding = this.getSpecBodyEncoding(bodyInfo)
+      if (
+        encoding === "wrapped" &&
+        !(Object.keys(bodyParams).length === 1 && Object.hasOwn(bodyParams, "body"))
+      ) {
+        // Only unwrap when the caller passed the non-object body as { body: ... }
+        encoding = undefined
+      }
+
+      if (encoding === "binary") {
+        const { data, contentType } = this.buildBinaryRequestBody(
+          bodyParams,
+          "body",
+          bodyInfo?.contentType,
+        )
+        if (data !== undefined) {
+          config.data = data
+        }
+        config.headers["Content-Type"] = contentType
+      } else if (encoding === "wrapped") {
+        const contentType = bodyInfo?.contentType || "application/json"
+        config.data = this.buildRequestBody({ "x-body-wrapper": "body" }, bodyParams, contentType)
+        config.headers["Content-Type"] = contentType
+      } else {
+        config.data = bodyParams
+        config.headers["Content-Type"] = bodyInfo?.contentType || "application/json"
+      }
     }
 
     try {
       // Execute the request
-      const response = await this.axiosInstance.request(config)
-      return response.data
+      return await this.sendRequest(config, true)
     } catch (error) {
       if (axios.isAxiosError(error)) {
         const axiosError = error as AxiosError
+        this.decodeErrorResponse(axiosError)
         throw new Error(
           `API request failed: ${axiosError.message}${
             axiosError.response
