@@ -26,6 +26,50 @@ const SYSTEM_CONTROLLED_HEADERS = new Set([
 ])
 
 /**
+ * Reject resolved request paths containing dot segments (`.` / `..`).
+ * HTTP clients normalise these away, which would send the request to a different
+ * endpoint than the one that was matched (and e.g. tag-filtered).
+ */
+function assertNoDotSegments(path: string): void {
+  const hasDotSegment = path.split("/").some((segment) => {
+    let decoded = segment
+    try {
+      decoded = decodeURIComponent(segment)
+    } catch {
+      // keep raw segment
+    }
+    return decoded === "." || decoded === ".."
+  })
+  if (hasDotSegment) {
+    throw new Error(
+      `Invalid request path '${path}': path parameters must not resolve to '.' or '..' segments`,
+    )
+  }
+}
+
+/**
+ * Split an endpoint supplied to a dynamic meta-tool into its path and query parameters.
+ * A fragment (`#...`) is dropped.
+ */
+function splitEndpoint(endpoint: string): { path: string; query: Record<string, any> } {
+  const withoutFragment = endpoint.split("#", 1)[0]
+  const queryIndex = withoutFragment.indexOf("?")
+  if (queryIndex === -1) {
+    return { path: withoutFragment, query: {} }
+  }
+
+  const query: Record<string, any> = {}
+  for (const [key, value] of new URLSearchParams(withoutFragment.slice(queryIndex + 1))) {
+    if (key in query) {
+      query[key] = Array.isArray(query[key]) ? [...query[key], value] : [query[key], value]
+    } else {
+      query[key] = value
+    }
+  }
+  return { path: withoutFragment.slice(0, queryIndex), query }
+}
+
+/**
  * Client for making API calls to the backend service
  */
 export class ApiClient {
@@ -166,33 +210,37 @@ export class ApiClient {
    *
    * @param endpoint - The endpoint path supplied by the caller
    * @param method - Optional HTTP method the resolved path must support
+   * Segments of the endpoint that are themselves placeholders (e.g. a partially filled
+   * `/users/123/posts/{postId}`) are not treated as values; they are reported in
+   * `placeholderNames` (template name -> name used by the caller) so the value can be
+   * taken from the caller's params.
+   *
    * @returns The matched spec path, its path item and the extracted path parameters
    */
-  private resolveEndpoint(
-    endpoint: string,
-    method?: string,
-  ):
-    | { path: string; pathItem: OpenAPIV3.PathItemObject; pathParams: Record<string, string> }
-    | undefined {
+  private resolveEndpoint(endpoint: string, method?: string): ResolvedEndpoint | undefined {
     const paths = this.openApiSpec?.paths
     if (!paths) {
       return undefined
     }
 
-    const exact = paths[endpoint]
-    if (exact && this.pathItemHasOperation(exact, method)) {
-      return { path: endpoint, pathItem: exact, pathParams: {} }
+    const normalize = (p: string): string => {
+      const withLeadingSlash = p.startsWith("/") ? p : `/${p}`
+      return withLeadingSlash.length > 1 ? withLeadingSlash.replace(/\/+$/, "") || "/" : "/"
+    }
+    const concrete = normalize(endpoint)
+
+    const exactPath = paths[endpoint] ? endpoint : paths[concrete] ? concrete : undefined
+    const exact = exactPath ? paths[exactPath] : undefined
+    if (exactPath && exact && this.pathItemHasOperation(exact, method)) {
+      return { path: exactPath, pathItem: exact, pathParams: {}, placeholderNames: {} }
     }
 
-    const normalize = (p: string): string => (p.length > 1 ? p.replace(/\/+$/, "") : p)
-    const concrete = normalize(endpoint)
-    const candidates: Array<{
-      path: string
-      pathItem: OpenAPIV3.PathItemObject
-      pathParams: Record<string, string>
-      paramCount: number
-      literalLength: number
-    }> = []
+    const candidates: Array<
+      ResolvedEndpoint & {
+        paramCount: number
+        literalLength: number
+      }
+    > = []
 
     for (const [templatePath, pathItem] of Object.entries(paths)) {
       if (!pathItem || !templatePath.includes("{")) continue
@@ -216,8 +264,14 @@ export class ApiClient {
       if (!match) continue
 
       const pathParams: Record<string, string> = {}
+      const placeholderNames: Record<string, string> = {}
       paramNames.forEach((name, index) => {
         const raw = match[index + 1]
+        const placeholder = /^\{([^{}/]+)\}$/.exec(raw)
+        if (placeholder) {
+          placeholderNames[name] = placeholder[1]
+          return
+        }
         try {
           pathParams[name] = decodeURIComponent(raw)
         } catch {
@@ -229,6 +283,7 @@ export class ApiClient {
         path: templatePath,
         pathItem,
         pathParams,
+        placeholderNames,
         paramCount: paramNames.length,
         literalLength: template.replace(/\{[^}/]+\}/g, "").length,
       })
@@ -236,14 +291,14 @@ export class ApiClient {
 
     if (candidates.length > 0) {
       candidates.sort((a, b) => a.paramCount - b.paramCount || b.literalLength - a.literalLength)
-      const { path, pathItem, pathParams } = candidates[0]
-      return { path, pathItem, pathParams }
+      const { path, pathItem, pathParams, placeholderNames } = candidates[0]
+      return { path, pathItem, pathParams, placeholderNames }
     }
 
     // Keep the literal path (even without the requested method) so callers can
     // report a precise error
-    if (exact) {
-      return { path: endpoint, pathItem: exact, pathParams: {} }
+    if (exactPath && exact) {
+      return { path: exactPath, pathItem: exact, pathParams: {}, placeholderNames: {} }
     }
 
     return undefined
@@ -266,7 +321,32 @@ export class ApiClient {
       delete remainingParams[name]
       return encodeURIComponent(String(value))
     })
+    assertNoDotSegments(url)
     return { url, remainingParams }
+  }
+
+  /**
+   * Build the params for a request to a resolved endpoint: query string from the
+   * endpoint, then caller params, then path values extracted from a concrete endpoint.
+   */
+  private buildEndpointParams(
+    resolved: ResolvedEndpoint,
+    query: Record<string, any>,
+    endpointParams: Record<string, any>,
+  ): Record<string, any> {
+    const merged: Record<string, any> = { ...query, ...endpointParams }
+
+    // Map placeholders the caller left in the endpoint under a different name
+    // (e.g. `/users/{user_id}` for spec `/users/{id}`) onto the spec's name
+    for (const [templateName, callerName] of Object.entries(resolved.placeholderNames)) {
+      if (callerName !== templateName && callerName in merged && !(templateName in merged)) {
+        merged[templateName] = merged[callerName]
+        delete merged[callerName]
+      }
+    }
+
+    // Path values taken from a concrete endpoint take precedence over params
+    return { ...merged, ...resolved.pathParams }
   }
 
   private getRequestContentType(method: string, path: string): string | undefined {
@@ -445,6 +525,8 @@ export class ApiClient {
           }
         }
       }
+
+      assertNoDotSegments(resolvedPath)
 
       // Get fresh authentication headers
       const authHeaders = await this.authProvider.getAuthHeaders()
@@ -669,7 +751,7 @@ export class ApiClient {
 
     // If we have the OpenAPI spec, use it to get detailed schema information
     if (this.openApiSpec) {
-      const resolved = this.resolveEndpoint(endpoint)
+      const resolved = this.resolveEndpoint(splitEndpoint(endpoint).path)
       if (!resolved) {
         throw new Error(`No endpoint found for path '${endpoint}' in tool '${toolId}'`)
       }
@@ -754,21 +836,28 @@ export class ApiClient {
       throw new Error(`Missing required parameter 'endpoint' for tool '${toolId}'`)
     }
 
+    // Accept a query string on the endpoint (e.g. /users/123?verbose=true); explicit
+    // params win over it
+    const { path: endpointPath, query } = splitEndpoint(String(endpoint))
+
     // If method is specified, construct the tool ID directly
     if (method) {
-      const directToolId = generateToolId(method, endpoint)
+      if (typeof method !== "string" || !isValidHttpMethod(method)) {
+        throw new Error(`Invalid HTTP method '${method}' for tool '${toolId}'`)
+      }
+
+      const directToolId = generateToolId(method, endpointPath)
       if (this.toolsMap.has(directToolId)) {
-        return this.executeApiCall(directToolId, endpointParams)
+        return this.executeApiCall(directToolId, { ...query, ...endpointParams })
       }
 
       // Resolve the endpoint against the spec; accepts templates (/users/{id}) and
       // concrete paths (/users/123)
-      const resolved = this.resolveEndpoint(endpoint, method)
+      const resolved = this.resolveEndpoint(endpointPath, method)
       const operation = resolved ? (resolved.pathItem as any)[method.toLowerCase()] : undefined
 
       if (resolved && operation) {
-        // Path values taken from a concrete endpoint take precedence over params
-        const mergedParams = { ...endpointParams, ...resolved.pathParams }
+        const mergedParams = this.buildEndpointParams(resolved, query, endpointParams)
 
         const resolvedToolId = generateToolId(method, resolved.path)
         if (this.toolsMap.has(resolvedToolId)) {
@@ -795,9 +884,9 @@ export class ApiClient {
 
     // If no method is specified, try to find the first available method for this endpoint
     if (this.openApiSpec) {
-      const resolved = this.resolveEndpoint(endpoint)
+      const resolved = this.resolveEndpoint(endpointPath)
       if (resolved) {
-        const mergedParams = { ...endpointParams, ...resolved.pathParams }
+        const mergedParams = this.buildEndpointParams(resolved, query, endpointParams)
         // Find the first available HTTP method for this path
         for (const method of VALID_HTTP_METHODS) {
           const operation = (resolved.pathItem as any)[method]
@@ -873,6 +962,13 @@ export class ApiClient {
       throw error
     }
   }
+}
+
+interface ResolvedEndpoint {
+  path: string
+  pathItem: OpenAPIV3.PathItemObject
+  pathParams: Record<string, string>
+  placeholderNames: Record<string, string>
 }
 
 export interface ApiClientOptions {
