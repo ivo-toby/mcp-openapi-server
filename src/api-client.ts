@@ -12,8 +12,6 @@ import {
   decodeBase64Body,
   decodeResponseBody,
   isBinaryRequestBody,
-  isJsonMediaType,
-  normalizeMediaType,
 } from "./utils/media-types.js"
 
 /**
@@ -225,61 +223,31 @@ export class ApiClient {
   }
 
   /**
-   * Build the request body and Content-Type for a POST-like request.
+   * Build a binary request body (Issue #105): the payload is passed base64-encoded in the
+   * wrapper argument and sent as raw bytes with the declared Content-Type.
    *
-   * @param bodyParams - Tool arguments left over after path/query/header extraction
+   * @param params - Tool arguments left over after path/query/header extraction
+   * @param wrapperKey - Name of the argument that carries the base64 payload
    * @param contentType - Content-Type declared by the OpenAPI spec (if any)
-   * @param encoding - How the `body` argument maps onto the request body
    */
-  private buildRequestBody(
-    bodyParams: Record<string, any>,
+  private buildBinaryRequestBody(
+    params: Record<string, any>,
+    wrapperKey: string,
     contentType: string | undefined,
-    encoding: BodyEncoding,
-  ): { data: unknown; contentType: string } {
-    const hasBody = Object.prototype.hasOwnProperty.call(bodyParams, "body")
-
-    if (encoding === "binary") {
-      // Issue #105: send raw bytes, not a JSON object wrapping a string
-      if (!hasBody && Object.keys(bodyParams).length > 0) {
-        throw new Error(
-          `This endpoint expects a binary request body: pass it base64-encoded in the "body" ` +
-            `parameter (got: ${Object.keys(bodyParams).join(", ")})`,
-        )
-      }
-      return {
-        data:
-          hasBody && bodyParams.body !== undefined ? decodeBase64Body(bodyParams.body) : undefined,
-        contentType: binaryRequestContentType(contentType),
-      }
+  ): { data: Buffer | undefined; contentType: string } {
+    const hasBody = Object.prototype.hasOwnProperty.call(params, wrapperKey)
+    if (!hasBody && Object.keys(params).length > 0) {
+      throw new Error(
+        `This endpoint expects a binary request body: pass it base64-encoded in the "${wrapperKey}" ` +
+          `parameter (got: ${Object.keys(params).join(", ")})`,
+      )
     }
-
-    const effectiveContentType = contentType || "application/json"
-
-    if (encoding === "wrapped" && hasBody) {
-      const value = bodyParams.body
-      const mediaType = normalizeMediaType(effectiveContentType)
-      let data: unknown
-      if (mediaType && isJsonMediaType(mediaType)) {
-        // Serialize ourselves so primitives like "123" are not re-interpreted by axios
-        data = JSON.stringify(value)
-      } else if (
-        value !== null &&
-        typeof value === "object" &&
-        (mediaType === "application/x-www-form-urlencoded" || mediaType?.startsWith("multipart/"))
-      ) {
-        // Free-form objects: let axios serialize them for form encodings
-        data = value
-      } else if (typeof value === "string") {
-        data = value
-      } else {
-        data = JSON.stringify(value)
-      }
-      return { data, contentType: effectiveContentType }
-    }
-
     return {
-      data: Object.keys(bodyParams).length > 0 ? bodyParams : {},
-      contentType: effectiveContentType,
+      data:
+        hasBody && params[wrapperKey] !== undefined
+          ? decodeBase64Body(params[wrapperKey], wrapperKey)
+          : undefined,
+      contentType: binaryRequestContentType(contentType),
     }
   }
 
@@ -542,18 +510,27 @@ export class ApiClient {
           }
         }
       } else {
-        // For POST-like methods, remaining parameters go in the request body.
-        // Content-Type comes from OpenAPI spec metadata, defaulting to application/json
-        const inputSchema = toolDef?.inputSchema as any
-        const { data, contentType } = this.buildRequestBody(
-          paramsCopy,
-          inputSchema?.["x-content-type"],
-          inputSchema?.["x-body-encoding"],
-        )
-        if (data !== undefined) {
-          config.data = data
+        // For POST-like methods, remaining parameters go in the request body
+        const inputSchema = toolDef?.inputSchema as Record<string, any> | undefined
+
+        if (inputSchema?.["x-body-encoding"] === "binary") {
+          // Issue #105: base64 argument → raw bytes
+          const { data, contentType } = this.buildBinaryRequestBody(
+            paramsCopy,
+            inputSchema["x-body-wrapper"] || "body",
+            inputSchema["x-content-type"],
+          )
+          config.headers["Content-Type"] = contentType
+          if (data !== undefined) {
+            config.data = data
+          }
+        } else {
+          // Set Content-Type from OpenAPI spec metadata, defaulting to application/json
+          const contentType = inputSchema?.["x-content-type"] || "application/json"
+          config.headers["Content-Type"] = contentType
+
+          config.data = this.buildRequestBody(inputSchema, paramsCopy, contentType)
         }
-        config.headers["Content-Type"] = contentType
       }
 
       // Execute the request
@@ -587,6 +564,61 @@ export class ApiClient {
       }
       throw error
     }
+  }
+
+  /**
+   * Build the request body from the remaining (non path/query/header) arguments,
+   * reversing the renames applied when the tool input schema was generated (Issue #102):
+   * - a non-object body exposed as a `body` wrapper property is sent as the bare value
+   * - body properties prefixed with `body_` due to a name collision get their original name
+   *
+   * @param inputSchema - The tool's input schema (may carry x-body-* metadata)
+   * @param params - Remaining arguments after extracting path/query/header parameters
+   * @returns The request body to send
+   */
+  private buildRequestBody(
+    inputSchema: Record<string, any> | undefined,
+    params: Record<string, any>,
+    contentType: string,
+  ): any {
+    const wrapperKey = inputSchema?.["x-body-wrapper"]
+    if (
+      typeof wrapperKey === "string" &&
+      Object.prototype.hasOwnProperty.call(params, wrapperKey) &&
+      params[wrapperKey] !== undefined
+    ) {
+      const value = params[wrapperKey]
+      // Serialize bare values explicitly. axios only JSON-encodes non-objects for a literal
+      // "application/json" content type: it sends JSON-parseable strings (e.g. "123") unquoted,
+      // and throws on numbers/booleans for other types (e.g. application/vnd.api+json, text/plain).
+      if (/\bjson\b/i.test(contentType)) {
+        return JSON.stringify(value)
+      }
+      if (value === null || typeof value !== "object") {
+        return String(value)
+      }
+      return value
+    }
+
+    const propertyMap = inputSchema?.["x-body-property-map"] as Record<string, string> | undefined
+    if (propertyMap && typeof propertyMap === "object") {
+      const body: Record<string, any> = {}
+      // Unmapped keys first, then renamed body fields, so a renamed field always wins over
+      // a leftover argument with the same name (e.g. an unextracted cookie parameter)
+      for (const [key, value] of Object.entries(params)) {
+        if (!Object.prototype.hasOwnProperty.call(propertyMap, key)) {
+          body[key] = value
+        }
+      }
+      for (const [key, value] of Object.entries(params)) {
+        if (Object.prototype.hasOwnProperty.call(propertyMap, key)) {
+          body[propertyMap[key]] = value
+        }
+      }
+      return body
+    }
+
+    return Object.keys(params).length > 0 ? params : {}
   }
 
   /**
@@ -920,11 +952,19 @@ export class ApiClient {
         encoding = undefined
       }
 
-      if (encoding) {
-        const { data, contentType } = this.buildRequestBody(params, bodyInfo?.contentType, encoding)
+      if (encoding === "binary") {
+        const { data, contentType } = this.buildBinaryRequestBody(
+          params,
+          "body",
+          bodyInfo?.contentType,
+        )
         if (data !== undefined) {
           config.data = data
         }
+        config.headers["Content-Type"] = contentType
+      } else if (encoding === "wrapped") {
+        const contentType = bodyInfo?.contentType || "application/json"
+        config.data = this.buildRequestBody({ "x-body-wrapper": "body" }, params, contentType)
         config.headers["Content-Type"] = contentType
       } else {
         config.data = params

@@ -575,6 +575,65 @@ paths:
       expect(tool.inputSchema.properties).toHaveProperty("body")
       expect((tool.inputSchema.properties! as any).body.type).toBe("string")
       expect(tool.inputSchema.required).toEqual(["body"])
+      expect((tool.inputSchema as any)["x-body-wrapper"]).toBe("body")
+    })
+
+    it("Issue #102: does not rename body properties that shadow Object.prototype members", () => {
+      const spec = {
+        openapi: "3.0.0",
+        info: { title: "Proto API", version: "1.0.0" },
+        paths: {
+          "/x": {
+            post: {
+              requestBody: {
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: { constructor: { type: "string" }, toString: { type: "string" } },
+                    },
+                  },
+                },
+              },
+              responses: { "200": { description: "OK" } },
+            },
+          },
+        },
+      }
+      const tool = openAPILoader
+        .parseOpenAPISpec(spec as unknown as OpenAPIV3.Document)
+        .get("POST::x")!
+      expect(Object.keys(tool.inputSchema.properties!)).toEqual(["constructor", "toString"])
+      expect((tool.inputSchema as any)["x-body-property-map"]).toBeUndefined()
+    })
+
+    it("Issue #102: records body properties renamed due to a parameter name collision", () => {
+      const spec: OpenAPIV3.Document = {
+        openapi: "3.0.0",
+        info: { title: "Collision API", version: "1.0.0" },
+        paths: {
+          "/things/{id}": {
+            put: {
+              parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
+              requestBody: {
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: { id: { type: "integer" }, title: { type: "string" } },
+                    },
+                  },
+                },
+              },
+              responses: { "200": { description: "OK" } },
+            },
+          },
+        },
+      }
+      const tool = openAPILoader.parseOpenAPISpec(spec).get("PUT::things__---id")!
+      expect(tool.inputSchema.properties).toHaveProperty("body_id")
+      expect((tool.inputSchema as any)["x-body-property-map"]).toEqual({ body_id: "id" })
+      expect((tool.inputSchema as any)["x-body-wrapper"]).toBeUndefined()
     })
 
     it("should handle requestBody with $ref", () => {
@@ -616,6 +675,109 @@ paths:
 
       expect(tool.inputSchema.properties).toHaveProperty("name")
       expect(tool.inputSchema.required).toContain("name")
+    })
+  })
+
+  describe("Issue #103: unique tool names", () => {
+    const op = (summary: string, operationId?: string): OpenAPIV3.OperationObject => ({
+      ...(operationId ? { operationId } : {}),
+      summary,
+      responses: { "200": { description: "ok" } },
+    })
+
+    it("should give operations whose names sanitize to the same value distinct names", () => {
+      const spec: OpenAPIV3.Document = {
+        openapi: "3.0.3",
+        info: { title: "t", version: "1" },
+        paths: {
+          "/t/consume": { post: op("检查并消耗 Ticket") },
+          "/t/verify": { post: op("验证 Ticket") },
+        },
+      }
+
+      const tools = openAPILoader.parseOpenAPISpec(spec)
+      const consume = tools.get("POST::t__consume")!
+      const verify = tools.get("POST::t__verify")!
+
+      // First operation keeps the base name (backward compatible)
+      expect(consume.name).toBe("ticket")
+      expect(verify.name).not.toBe("ticket")
+      expect(verify.name).toMatch(/^ticket-[0-9a-f]{4}$/)
+    })
+
+    it("should give unique names to several operations that collide after normalization", () => {
+      const spec: OpenAPIV3.Document = {
+        openapi: "3.0.3",
+        info: { title: "t", version: "1" },
+        paths: {
+          "/a": { get: op("x", "getThing"), post: op("x", "get_thing") },
+          "/b": { get: op("x", "GetThing") },
+          "/c": { get: op("x", "get-thing") },
+        },
+      }
+
+      const names = Array.from(openAPILoader.parseOpenAPISpec(spec).values()).map((t) =>
+        t.name.toLowerCase(),
+      )
+      expect(names).toHaveLength(4)
+      expect(new Set(names).size).toBe(4)
+      for (const name of names) {
+        expect(name).toMatch(/^[a-z0-9-]+$/)
+      }
+    })
+
+    it("should not collide with an operationId that equals a generated suffixed name", () => {
+      const loader = new OpenAPISpecLoader({ disableAbbreviation: true, verbose: false })
+      const base: OpenAPIV3.Document = {
+        openapi: "3.0.3",
+        info: { title: "t", version: "1" },
+        paths: {
+          "/t/consume": { post: op("检查并消耗 Ticket") },
+          "/t/verify": { post: op("验证 Ticket") },
+        },
+      }
+      const suffixed = loader.parseOpenAPISpec(base).get("POST::t__verify")!.name
+      expect(suffixed).toMatch(/^ticket-[0-9a-f]{4}$/)
+
+      // An operation listed first that already claims the suffixed name
+      const spec: OpenAPIV3.Document = {
+        ...base,
+        paths: { "/z": { get: op("x", suffixed) }, ...base.paths },
+      }
+      const tools = loader.parseOpenAPISpec(spec)
+      expect(tools.get("GET::z")!.name).toBe(suffixed)
+      expect(tools.get("POST::t__consume")!.name).toBe("ticket")
+      expect(tools.get("POST::t__verify")!.name).toBe(`${suffixed}-2`)
+    })
+
+    it("should keep suffixed names within the 64 character limit", () => {
+      const longId = "a".repeat(80)
+      const spec: OpenAPIV3.Document = {
+        openapi: "3.0.3",
+        info: { title: "t", version: "1" },
+        paths: {
+          "/one": { get: op("x", longId) },
+          "/two": { get: op("x", longId) },
+        },
+      }
+
+      const tools = openAPILoader.parseOpenAPISpec(spec)
+      const first = tools.get("GET::one")!.name
+      const second = tools.get("GET::two")!.name
+
+      // First keeps the (already hashed/truncated) base name unchanged
+      expect(first).toBe(openAPILoader.abbreviateOperationId(longId))
+      expect(second).not.toBe(first)
+      for (const name of [first, second]) {
+        expect(name.length).toBeLessThanOrEqual(64)
+        expect(name).toMatch(/^[a-z0-9-]+$/)
+      }
+      expect(second).toMatch(/-[0-9a-f]{4}$/)
+    })
+
+    it("should leave unique names untouched", () => {
+      const tools = openAPILoader.parseOpenAPISpec(mockOpenAPISpec)
+      expect(tools.get("GET::users")!.name).toBe("get-usrs")
     })
   })
 })

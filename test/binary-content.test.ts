@@ -179,8 +179,49 @@ describe("Issue #105: binary request and response bodies", () => {
       expect(tool.inputSchema.required).toBeUndefined()
     })
 
+    it("does not clobber a parameter named `body` with the binary payload", async () => {
+      const collisionSpec: OpenAPIV3.Document = {
+        openapi: "3.0.0",
+        info: { title: "Collision", version: "1.0.0" },
+        paths: {
+          "/blob": {
+            post: {
+              parameters: [{ name: "body", in: "query", schema: { type: "string" } }],
+              requestBody: { required: true, content: { "application/octet-stream": {} } },
+              responses: { "200": { description: "OK" } },
+            },
+          },
+        },
+      }
+      const collisionTools = loader.parseOpenAPISpec(collisionSpec)
+      const tool = collisionTools.get("POST::blob")!
+      const props = tool.inputSchema.properties as any
+      expect(props.body["x-parameter-location"]).toBe("query")
+      expect(props.body_body.contentEncoding).toBe("base64")
+      expect((tool.inputSchema as any)["x-body-wrapper"]).toBe("body_body")
+      expect(tool.inputSchema.required).toEqual(["body_body"])
+
+      const client = new ApiClient("https://api.test", new StaticAuthProvider())
+      client.setTools(collisionTools)
+      const calls: any[] = []
+      ;(client as any).axiosInstance = Object.assign(
+        async (config: any) => {
+          calls.push(config)
+          return { data: Buffer.from("{}"), headers: { "content-type": "application/json" } }
+        },
+        { getUri: () => "https://api.test/blob" },
+      )
+      await client.executeApiCall("POST::blob", {
+        body: "q-value",
+        body_body: PNG_BYTES.toString("base64"),
+      })
+      expect(calls[0].params).toEqual({ body: "q-value" })
+      expect(Buffer.isBuffer(calls[0].data) && calls[0].data.equals(PNG_BYTES)).toBe(true)
+      expect(calls[0].headers["Content-Type"]).toBe("application/octet-stream")
+    })
+
     it("marks primitive text bodies as wrapped, leaves object bodies alone", () => {
-      expect((tools.get("POST::notes")!.inputSchema as any)["x-body-encoding"]).toBe("wrapped")
+      expect((tools.get("POST::notes")!.inputSchema as any)["x-body-wrapper"]).toBe("body")
       expect((tools.get("POST::users")!.inputSchema as any)["x-body-encoding"]).toBeUndefined()
     })
   })

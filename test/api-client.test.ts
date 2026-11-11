@@ -1898,3 +1898,207 @@ describe("Issue #81: Content-Type header support", () => {
     })
   })
 })
+
+describe("Issue #102: Request body reverses tool-schema renames", () => {
+  const setup = (spec: any) => {
+    const loader = new OpenAPISpecLoader()
+    const client = new ApiClient("https://api.example.com/v1", new StaticAuthProvider(), loader)
+    client.setOpenApiSpec(spec)
+    client.setTools(loader.parseOpenAPISpec(spec))
+    let captured: any = null
+    ;(client as any).axiosInstance = vi.fn().mockImplementation((config) => {
+      captured = config
+      return Promise.resolve({ data: { ok: true } })
+    })
+    return { client, getConfig: () => captured }
+  }
+
+  const bodySpec = (
+    path: string,
+    operationId: string,
+    schema: any,
+    contentType = "application/json",
+  ) => ({
+    openapi: "3.0.3",
+    info: { title: "t", version: "1" },
+    paths: {
+      [path]: {
+        post: {
+          operationId,
+          requestBody: { required: true, content: { [contentType]: { schema } } },
+          responses: { "200": { description: "ok" } },
+        },
+      },
+    },
+  })
+
+  it("sends an array body as the bare array, not wrapped in 'body'", async () => {
+    const { client, getConfig } = setup(
+      bodySpec("/items", "postArray", { type: "array", items: { type: "string" } }),
+    )
+    await client.executeApiCall("POST::items", { body: ["v2body"] })
+    expect(getConfig().url).toBe("/items")
+    expect(getConfig().data).toBe('["v2body"]')
+  })
+
+  it("sends a JSON string body as a JSON string literal, not wrapped in 'body'", async () => {
+    const { client, getConfig } = setup(bodySpec("/str", "postString", { type: "string" }))
+    await client.executeApiCall("POST::str", { body: "v1body" })
+    expect(getConfig().data).toBe('"v1body"')
+  })
+
+  it("quotes numeric-looking JSON string bodies", async () => {
+    const { client, getConfig } = setup(bodySpec("/str", "postString", { type: "string" }))
+    await client.executeApiCall("POST::str", { body: "123" })
+    expect(getConfig().data).toBe('"123"')
+  })
+
+  it("sends a non-JSON string body raw", async () => {
+    const { client, getConfig } = setup(
+      bodySpec("/str", "postString", { type: "string" }, "text/plain"),
+    )
+    await client.executeApiCall("POST::str", { body: "hello" })
+    expect(getConfig().data).toBe("hello")
+    expect(getConfig().headers["Content-Type"]).toBe("text/plain")
+  })
+
+  it("restores the original name of a body property that collided with a path parameter", async () => {
+    const { client, getConfig } = setup({
+      openapi: "3.0.3",
+      info: { title: "t", version: "1" },
+      paths: {
+        "/things/{id}": {
+          put: {
+            operationId: "putThing",
+            parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
+            requestBody: {
+              required: true,
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: { id: { type: "integer" }, title: { type: "string" } },
+                  },
+                },
+              },
+            },
+            responses: { "200": { description: "ok" } },
+          },
+        },
+      },
+    })
+    await client.executeApiCall("PUT::things__---id", { id: 7, body_id: 9, title: "T" })
+    expect(getConfig().url).toBe("/things/7")
+    expect(getConfig().data).toEqual({ id: 9, title: "T" })
+  })
+
+  it.each([
+    [{ type: "integer" }, "application/vnd.api+json", 5, "5"],
+    [{ type: "boolean" }, "application/merge-patch+json", false, "false"],
+    [{ type: "integer" }, "application/json", 0, "0"],
+    [{ type: "string", nullable: true }, "application/json", null, "null"],
+    [{ type: "integer" }, "text/plain", 5, "5"],
+    [{ type: "boolean" }, "text/plain", true, "true"],
+  ])(
+    "serializes a wrapped %j body under %s (%j) as %s",
+    async (schema, contentType, value, expected) => {
+      const { client, getConfig } = setup(bodySpec("/v", "postValue", schema, contentType))
+      await client.executeApiCall("POST::v", { body: value })
+      expect(getConfig().data).toBe(expected)
+      expect(getConfig().headers["Content-Type"]).toBe(contentType)
+    },
+  )
+
+  it("keeps a query parameter named 'body' and wraps the body under another name", async () => {
+    const { client, getConfig } = setup({
+      openapi: "3.0.3",
+      info: { title: "t", version: "1" },
+      paths: {
+        "/items": {
+          post: {
+            operationId: "postItems",
+            parameters: [{ name: "body", in: "query", schema: { type: "string" } }],
+            requestBody: {
+              required: true,
+              content: {
+                "application/json": { schema: { type: "array", items: { type: "string" } } },
+              },
+            },
+            responses: { "200": { description: "ok" } },
+          },
+        },
+      },
+    })
+    await client.executeApiCall("POST::items", { body: "q", body_body: ["a"] })
+    expect(getConfig().params).toEqual({ body: "q" })
+    expect(getConfig().data).toBe('["a"]')
+  })
+
+  it("does not lose a genuine body_<name> field declared before the colliding field", async () => {
+    const { client, getConfig } = setup({
+      openapi: "3.0.3",
+      info: { title: "t", version: "1" },
+      paths: {
+        "/things/{id}": {
+          put: {
+            operationId: "putThing",
+            parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
+            requestBody: {
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: { body_id: { type: "string" }, id: { type: "integer" } },
+                  },
+                },
+              },
+            },
+            responses: { "200": { description: "ok" } },
+          },
+        },
+      },
+    })
+    await client.executeApiCall("PUT::things__---id", { id: 7, body_id: "real", body_body_id: 9 })
+    expect(getConfig().url).toBe("/things/7")
+    expect(getConfig().data).toEqual({ body_id: "real", id: 9 })
+  })
+
+  it("lets a renamed body field win over a leftover argument with the original name", async () => {
+    const { client, getConfig } = setup({
+      openapi: "3.0.3",
+      info: { title: "t", version: "1" },
+      paths: {
+        "/things": {
+          put: {
+            operationId: "putThing",
+            parameters: [{ name: "id", in: "cookie", schema: { type: "string" } }],
+            requestBody: {
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: { id: { type: "integer" }, title: { type: "string" } },
+                  },
+                },
+              },
+            },
+            responses: { "200": { description: "ok" } },
+          },
+        },
+      },
+    })
+    await client.executeApiCall("PUT::things", { body_id: 9, id: "c", title: "T" })
+    expect(getConfig().data).toMatchObject({ id: 9, title: "T" })
+  })
+
+  it("leaves genuine 'body' and 'body_x' fields of an object body untouched", async () => {
+    const { client, getConfig } = setup(
+      bodySpec("/obj", "postObj", {
+        type: "object",
+        properties: { body: { type: "string" }, body_id: { type: "integer" } },
+      }),
+    )
+    await client.executeApiCall("POST::obj", { body: "b", body_id: 1 })
+    expect(getConfig().data).toEqual({ body: "b", body_id: 1 })
+  })
+})
