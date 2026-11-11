@@ -287,6 +287,13 @@ describe("Issue #105: binary request and response bodies", () => {
             responses: { "200": { description: "OK" } },
           },
         },
+        "/files/{id}": {
+          put: {
+            parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+            requestBody: { required: true, content: { "application/octet-stream": {} } },
+            responses: { "200": { description: "OK" } },
+          },
+        },
         "/form": {
           post: {
             requestBody: {
@@ -436,6 +443,26 @@ describe("Issue #105: binary request and response bodies", () => {
       expect(JSON.stringify(pdf)).not.toContain("s3cret")
       expect(JSON.stringify(pdf)).not.toContain("secret-query")
       expect(JSON.stringify(toToolResultContent(pdf))).not.toContain("127.0.0.1")
+    })
+
+    it("uploads binary bodies to concrete dynamic-mode paths, keeping the endpoint query", async () => {
+      const dynamicClient = new ApiClient(baseUrl, new StaticAuthProvider())
+      dynamicClient.setOpenApiSpec(spec)
+      await dynamicClient.executeApiCall("INVOKE-API-ENDPOINT", {
+        endpoint: "/files/7?dryRun=true",
+        method: "PUT",
+        params: { body: PNG_BYTES.toString("base64") },
+      })
+      expect(lastRequest.method).toBe("PUT")
+      expect(lastRequest.url).toBe("/files/7?dryRun=true")
+      expect(lastRequest.contentType).toBe("application/octet-stream")
+      expect(lastRequest.body.equals(PNG_BYTES)).toBe(true)
+
+      const schema = await dynamicClient.executeApiCall("GET-API-ENDPOINT-SCHEMA", {
+        endpoint: "/files/7",
+      })
+      expect(schema.path).toBe("/files/{id}")
+      expect(schema.operations[0].bodyParameter).toMatchObject({ encoding: "base64" })
     })
 
     it("documents the body convention in GET-API-ENDPOINT-SCHEMA", async () => {
