@@ -28,6 +28,25 @@ export interface ExtendedTool extends Tool {
  */
 export type SpecInputMethod = "url" | "file" | "stdin" | "inline"
 
+const hasOwn = (obj: object, key: string): boolean => Object.prototype.hasOwnProperty.call(obj, key)
+
+/**
+ * Pick a `body_`-prefixed input name for a request-body field that collides with an
+ * existing input. Keeps prefixing until the name is free in both the tool's inputs and
+ * the body's own property names, so a genuine `body_<name>` body field is never overwritten.
+ */
+function uniqueBodyParamName(
+  name: string,
+  existing: Record<string, unknown>,
+  bodyPropNames: Set<string>,
+): string {
+  let candidate = `body_${name}`
+  while (hasOwn(existing, candidate) || bodyPropNames.has(candidate)) {
+    candidate = `body_${candidate}`
+  }
+  return candidate
+}
+
 /**
  * Class to load and parse OpenAPI specifications
  */
@@ -665,10 +684,16 @@ export class OpenAPISpecLoader {
               }
             } else if (inlinedSchema.type === "object" && inlinedSchema.properties) {
               // Handle object properties
+              const renamedBodyProps: Record<string, string> = {}
+              const bodyPropNames = new Set(Object.keys(inlinedSchema.properties))
               for (const [propName, propSchema] of Object.entries(inlinedSchema.properties)) {
-                const paramName = tool.inputSchema.properties![propName]
-                  ? `body_${propName}`
+                const paramName = hasOwn(tool.inputSchema.properties!, propName)
+                  ? uniqueBodyParamName(propName, tool.inputSchema.properties!, bodyPropNames)
                   : propName
+
+                if (paramName !== propName) {
+                  renamedBodyProps[paramName] = propName
+                }
 
                 tool.inputSchema.properties![paramName] = propSchema as OpenAPIV3.SchemaObject
 
@@ -676,10 +701,24 @@ export class OpenAPISpecLoader {
                   requiredParams.push(paramName)
                 }
               }
+
+              // Record collision renames so ApiClient can restore the original body field
+              // names when building the request (Issue #102)
+              if (Object.keys(renamedBodyProps).length > 0) {
+                ;(tool.inputSchema as any)["x-body-property-map"] = renamedBodyProps
+              }
             } else {
-              // Use body wrapper for other non-object schemas (primitives, arrays, etc.)
-              tool.inputSchema.properties!["body"] = inlinedSchema
-              requiredParams.push("body")
+              // Use body wrapper for other non-object schemas (primitives, arrays, etc.).
+              // Avoid clobbering a parameter that is itself named "body".
+              const wrapperName = hasOwn(tool.inputSchema.properties!, "body")
+                ? uniqueBodyParamName("body", tool.inputSchema.properties!, new Set())
+                : "body"
+              tool.inputSchema.properties![wrapperName] = inlinedSchema
+              requiredParams.push(wrapperName)
+
+              // Mark the wrapper so ApiClient sends the bare value as the request body,
+              // not { body: value } (Issue #102)
+              ;(tool.inputSchema as any)["x-body-wrapper"] = wrapperName
             }
           }
 

@@ -575,6 +575,65 @@ paths:
       expect(tool.inputSchema.properties).toHaveProperty("body")
       expect((tool.inputSchema.properties! as any).body.type).toBe("string")
       expect(tool.inputSchema.required).toEqual(["body"])
+      expect((tool.inputSchema as any)["x-body-wrapper"]).toBe("body")
+    })
+
+    it("Issue #102: does not rename body properties that shadow Object.prototype members", () => {
+      const spec = {
+        openapi: "3.0.0",
+        info: { title: "Proto API", version: "1.0.0" },
+        paths: {
+          "/x": {
+            post: {
+              requestBody: {
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: { constructor: { type: "string" }, toString: { type: "string" } },
+                    },
+                  },
+                },
+              },
+              responses: { "200": { description: "OK" } },
+            },
+          },
+        },
+      }
+      const tool = openAPILoader
+        .parseOpenAPISpec(spec as unknown as OpenAPIV3.Document)
+        .get("POST::x")!
+      expect(Object.keys(tool.inputSchema.properties!)).toEqual(["constructor", "toString"])
+      expect((tool.inputSchema as any)["x-body-property-map"]).toBeUndefined()
+    })
+
+    it("Issue #102: records body properties renamed due to a parameter name collision", () => {
+      const spec: OpenAPIV3.Document = {
+        openapi: "3.0.0",
+        info: { title: "Collision API", version: "1.0.0" },
+        paths: {
+          "/things/{id}": {
+            put: {
+              parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
+              requestBody: {
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: { id: { type: "integer" }, title: { type: "string" } },
+                    },
+                  },
+                },
+              },
+              responses: { "200": { description: "OK" } },
+            },
+          },
+        },
+      }
+      const tool = openAPILoader.parseOpenAPISpec(spec).get("PUT::things__---id")!
+      expect(tool.inputSchema.properties).toHaveProperty("body_id")
+      expect((tool.inputSchema as any)["x-body-property-map"]).toEqual({ body_id: "id" })
+      expect((tool.inputSchema as any)["x-body-wrapper"]).toBeUndefined()
     })
 
     it("should handle requestBody with $ref", () => {
