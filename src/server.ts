@@ -20,6 +20,45 @@ import { PromptsManager } from "./prompts-manager"
 import { ResourcesManager } from "./resources-manager"
 import { Logger } from "./utils/logger"
 import { ExtraToolDefinition } from "./types/extra-tools"
+import { BinaryResponse } from "./utils/media-types"
+
+/**
+ * Convert an API call result into MCP tool result content.
+ *
+ * Issue #105: binary responses are returned as `image`/`audio` content or as an
+ * embedded resource with a base64 `blob`; text responses are returned verbatim.
+ */
+export function toToolResultContent(result: unknown): CallToolResult["content"] {
+  if (result instanceof BinaryResponse) {
+    const data = result.toBase64()
+    if (result.mimeType.startsWith("image/")) {
+      return [{ type: "image", data, mimeType: result.mimeType }]
+    }
+    if (result.mimeType.startsWith("audio/")) {
+      return [{ type: "audio", data, mimeType: result.mimeType }]
+    }
+    return [
+      {
+        type: "text",
+        text: `Binary response (${result.mimeType}, ${result.size} bytes) returned as an embedded resource.`,
+      },
+      {
+        type: "resource",
+        resource: {
+          uri: result.uri || "data:",
+          mimeType: result.mimeType,
+          blob: data,
+        },
+      },
+    ]
+  }
+
+  if (typeof result === "string") {
+    return [{ type: "text", text: result }]
+  }
+
+  return [{ type: "text", text: JSON.stringify(result, null, 2) }]
+}
 
 /**
  * MCP server implementation for OpenAPI specifications
@@ -281,12 +320,7 @@ export class OpenAPIServer {
         const result = await this.apiClient.executeApiCall(toolId, params || {})
 
         return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
+          content: toToolResultContent(result),
         }
       } catch (error) {
         if (error instanceof Error) {

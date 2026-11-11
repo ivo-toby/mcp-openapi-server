@@ -103,7 +103,11 @@ export class ToolsManager {
           },
           params: {
             type: "object",
-            description: "Parameters for the API call",
+            description:
+              "Parameters for the API call. Object request bodies are passed as their properties. " +
+              "Non-object bodies (strings, arrays) go in params.body; binary bodies " +
+              "(e.g. application/octet-stream) go in params.body as base64. " +
+              "See bodyParameter in get-api-endpoint-schema.",
             properties: {},
           },
         },
