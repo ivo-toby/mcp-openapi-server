@@ -67,6 +67,12 @@ describe("Issue #105: binary request and response bodies", () => {
       expect(decodeResponseBody(Buffer.from("plain"), undefined)).toBe("plain")
       expect(decodeResponseBody(Buffer.from("csv,ish"), "application/vnd.custom")).toBe("csv,ish")
       expect(decodeResponseBody(PNG_BYTES, undefined)).toBeInstanceOf(BinaryResponse)
+      // A wildcard response Content-Type is treated like a missing one
+      expect(decodeResponseBody(Buffer.from('{"a":1}'), "*/*")).toEqual({ a: 1 })
+      expect(decodeResponseBody(Buffer.from("plain"), "*/*")).toBe("plain")
+      const wildcardBinary = decodeResponseBody(PNG_BYTES, "*/*") as BinaryResponse
+      expect(wildcardBinary).toBeInstanceOf(BinaryResponse)
+      expect(wildcardBinary.mimeType).toBe("application/octet-stream")
       expect(decodeResponseBody(PNG_BYTES, "application/vnd.custom")).toBeInstanceOf(BinaryResponse)
     })
 

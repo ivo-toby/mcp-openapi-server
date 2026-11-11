@@ -286,7 +286,9 @@ export function decodeResponseBody(data: unknown, contentType: unknown, uri?: st
     return ""
   }
 
-  const mediaType = normalizeMediaType(contentType)
+  // A wildcard (or any other media range) says nothing about the payload: treat it as missing
+  const normalized = normalizeMediaType(contentType)
+  const mediaType = normalized?.includes("*") ? undefined : normalized
 
   if (mediaType && isJsonMediaType(mediaType)) {
     return parseJsonOrText(decodeText(buffer, getCharset(contentType)))
