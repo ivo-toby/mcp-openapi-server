@@ -231,7 +231,14 @@ Control this with `--spec-auth` / `SPEC_AUTH`:
 - `always`: send auth headers to the spec URL's own origin, even when it differs from the API (only for a spec host you trust with these credentials)
 - `never`: never send auth headers with spec requests
 
-In every mode, redirects are re-checked hop by hop. A redirect to another origin, such as a pre-signed storage URL, continues **without** auth headers. On a `401`/`403`, an `AuthProvider`'s `handleAuthError()` is called and the request is retried once if it returns `true`, the same as for API calls.
+In every mode, each redirect is checked before it is followed. A redirect to another origin, such as a pre-signed storage URL, continues **without** auth headers, and so does any redirect after that one, even if it comes back to the API origin. On a `401`/`403`, an `AuthProvider`'s `handleAuthError()` is called and the request is retried once if it returns `true`, the same as for API calls.
+
+Notes:
+
+- All configured `--headers` are sent with an authenticated spec request, not only `Authorization`.
+- If your `AuthProvider`'s `getAuthHeaders()` throws (for example because no token is set yet), the spec request is sent without auth and a warning is logged. If the spec then needs auth, the error includes the provider's message.
+- Spec URLs that embed credentials (`https://user:pass@host/...`) never get auth headers added.
+- Authenticated spec requests use the same HTTP client as API calls: a 30s timeout, a 50MB size limit, and a direct connection with no proxy.
 
 ### 2. Local File Loading
 

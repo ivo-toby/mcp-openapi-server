@@ -183,25 +183,39 @@ export class OpenAPISpecLoader {
    */
   private async loadFromUrl(url: string): Promise<string> {
     const allowedAuthOrigin = this.resolveAllowedAuthOrigin(url)
+    const warned = new Set<string>()
+    const warnOnce = (message: string): void => {
+      if (!warned.has(message)) {
+        warned.add(message)
+        this.logger.warn(`Warning: ${message}`)
+      }
+    }
     let currentUrl = url
     let redirects = 0
     let authRetried = false
 
     for (;;) {
       const useAgent = !!this.httpsAgent && this.shouldUseHttpsAgent(currentUrl)
-      const authHeaders = await this.getSpecAuthHeaders(currentUrl, allowedAuthOrigin)
+      const { headers: authHeaders, unavailable: authNotice } = await this.getSpecAuthHeaders(
+        currentUrl,
+        allowedAuthOrigin,
+      )
       const tlsNotice =
         this.httpsAgent && !useAgent ? this.describeSkippedTlsOptions(currentUrl) : undefined
       if (tlsNotice) {
-        this.logger.warn(`Warning: ${tlsNotice}`)
+        warnOnce(tlsNotice)
       }
+      if (authNotice) {
+        warnOnce(authNotice)
+      }
+      const notice = [tlsNotice, authNotice].filter(Boolean).join("; ") || undefined
 
       if (!useAgent && !authHeaders) {
         // Nothing to apply: plain fetch, which follows any further redirects itself
-        return await this.withNotice(tlsNotice, () => this.fetchText(currentUrl))
+        return await this.withNotice(notice, () => this.fetchText(currentUrl))
       }
 
-      const response = await this.withNotice(tlsNotice, () =>
+      const response = await this.withNotice(notice, () =>
         this.axiosGet(currentUrl, useAgent ? this.httpsAgent : undefined, authHeaders),
       )
 
@@ -230,7 +244,7 @@ export class OpenAPISpecLoader {
 
       if (response.status < 200 || response.status >= 300) {
         throw new Error(
-          this.appendNotice(`HTTP ${response.status}: ${response.statusText}`, tlsNotice),
+          this.appendNotice(`HTTP ${response.status}: ${response.statusText}`, notice),
         )
       }
 
@@ -278,17 +292,33 @@ export class OpenAPISpecLoader {
   }
 
   /**
-   * Auth headers for a request to this URL, or undefined when none may or need be sent
+   * Auth headers for a request to this URL. `headers` is undefined when none may or
+   * need be sent. If the provider throws (e.g. no token set yet), the request goes
+   * out unauthenticated and `unavailable` explains why, so a spec that needs no auth
+   * still loads and one that does fails with the provider's reason.
    */
   private async getSpecAuthHeaders(
     url: string,
     allowedOrigin: string | null,
-  ): Promise<Record<string, string> | undefined> {
+  ): Promise<{ headers?: Record<string, string>; unavailable?: string }> {
     if (!this.authProvider || allowedOrigin === null || this.getOrigin(url) !== allowedOrigin) {
-      return undefined
+      return {}
     }
-    const headers = await this.authProvider.getAuthHeaders()
-    return headers && Object.keys(headers).length > 0 ? headers : undefined
+    // Credentials embedded in the URL would replace the provider's Authorization header
+    // (and fetch rejects such URLs anyway), so leave those requests alone
+    const parsed = new URL(url)
+    if (parsed.username || parsed.password) {
+      return {}
+    }
+    try {
+      const headers = await this.authProvider.getAuthHeaders()
+      return headers && Object.keys(headers).length > 0 ? { headers } : {}
+    } catch (error) {
+      const reason = error instanceof Error ? error.message.trim() : String(error)
+      return {
+        unavailable: `auth headers unavailable for ${url} (${reason}); sending the spec request without them`,
+      }
+    }
   }
 
   private toAxiosError(response: AxiosResponse): AxiosError {
@@ -361,9 +391,14 @@ export class OpenAPISpecLoader {
     return this.httpsAgentOrigin !== null && parsed.origin === this.httpsAgentOrigin
   }
 
+  /**
+   * Origin of an http(s) URL, or null for invalid URLs and other schemes (whose
+   * opaque origin "null" would otherwise compare equal to each other)
+   */
   private getOrigin(url: string): string | null {
     try {
-      return new URL(url.trim()).origin
+      const parsed = new URL(url.trim())
+      return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.origin : null
     } catch {
       return null
     }

@@ -333,8 +333,12 @@ export function loadConfig(): OpenAPIMCPServerConfig {
     throw new Error("API base URL is required (--api-base-url or API_BASE_URL)")
   }
 
-  const specAuthInput =
-    (typeof argv["spec-auth"] === "string" ? argv["spec-auth"] : undefined) || process.env.SPEC_AUTH
+  const specAuthArg = argv["spec-auth"]
+  if (specAuthArg !== undefined && typeof specAuthArg !== "string") {
+    // yargs turns a repeated flag into an array; refuse instead of silently ignoring it
+    throw new Error("--spec-auth may only be given once")
+  }
+  const specAuthInput = specAuthArg || process.env.SPEC_AUTH
   let specAuth: SpecAuthMode | undefined
   if (typeof specAuthInput === "string" && specAuthInput.trim().length > 0) {
     const normalized = specAuthInput.trim().toLowerCase()

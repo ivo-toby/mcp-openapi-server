@@ -26,8 +26,13 @@ The server SHALL send the configured HTTP authentication headers (static headers
 
 #### Scenario: Invalid mode
 
-- **WHEN** `--spec-auth` or `SPEC_AUTH` is not one of `same-origin`, `always`, `never`
+- **WHEN** `--spec-auth` or `SPEC_AUTH` is not one of `same-origin`, `always`, `never`, or `--spec-auth` is given more than once
 - **THEN** configuration loading fails with a clear error
+
+#### Scenario: Auth headers unavailable
+
+- **WHEN** `getAuthHeaders()` throws for an allowed spec request
+- **THEN** the request is sent without auth headers, a warning is logged, and any load failure includes the provider's error message
 
 ### Requirement: Redirects do not leak spec auth
 
@@ -36,7 +41,7 @@ The server SHALL re-check every redirect hop of an authenticated spec request an
 #### Scenario: Cross-origin redirect
 
 - **WHEN** an authenticated spec request is redirected to another origin
-- **THEN** the redirected request is sent without auth headers
+- **THEN** the redirected request, and any redirect after it, is sent without auth headers
 
 #### Scenario: Same-origin redirect
 
