@@ -193,13 +193,18 @@ export class OpenAPISpecLoader {
     let currentUrl = url
     let redirects = 0
     let authRetried = false
+    // Once a redirect leaves the allowed auth origin, the rest of the chain stays
+    // unauthenticated, even if it comes back
+    let leftAuthOrigin = false
 
     for (;;) {
       const useAgent = !!this.httpsAgent && this.shouldUseHttpsAgent(currentUrl)
-      const { headers: authHeaders, unavailable: authNotice } = await this.getSpecAuthHeaders(
-        currentUrl,
-        allowedAuthOrigin,
-      )
+      if (allowedAuthOrigin !== null && this.getOrigin(currentUrl) !== allowedAuthOrigin) {
+        leftAuthOrigin = true
+      }
+      const { headers: authHeaders, unavailable: authNotice } = leftAuthOrigin
+        ? {}
+        : await this.getSpecAuthHeaders(currentUrl, allowedAuthOrigin)
       const tlsNotice =
         this.httpsAgent && !useAgent ? this.describeSkippedTlsOptions(currentUrl) : undefined
       if (tlsNotice) {

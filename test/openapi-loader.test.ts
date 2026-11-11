@@ -668,6 +668,35 @@ paths:
       expect(fetch).toHaveBeenCalledWith("https://evil.example.net/openapi.json")
     })
 
+    it("should keep auth off after leaving the allowed origin, even when redirected back", async () => {
+      // An unscoped HTTPS agent keeps every https hop in the redirect loop
+      const httpsAgent = new HttpsAgent()
+      vi.mocked(axios.get)
+        .mockResolvedValueOnce({
+          status: 302,
+          statusText: "Found",
+          headers: { location: "https://other.example.net/bounce" },
+          data: "",
+        })
+        .mockResolvedValueOnce({
+          status: 302,
+          statusText: "Found",
+          headers: { location: url },
+          data: "",
+        })
+        .mockResolvedValueOnce(ok())
+
+      await loaderWith({ httpsAgent }).loadOpenAPISpec(url, "url")
+      httpsAgent.destroy()
+
+      const calls = vi.mocked(axios.get).mock.calls
+      expect(calls).toHaveLength(3)
+      expect(calls[0][1]?.headers).toEqual(authHeaders)
+      expect(calls[1][1]?.headers).toBeUndefined()
+      expect(calls[2][0]).toBe(url)
+      expect(calls[2][1]?.headers).toBeUndefined()
+    })
+
     it("should cap redirects on the auth-only path", async () => {
       vi.mocked(axios.get).mockResolvedValue({
         status: 302,

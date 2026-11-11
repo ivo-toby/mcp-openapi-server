@@ -745,6 +745,15 @@ describe("loadConfig", () => {
       expect(() => loadConfig()).toThrow("--spec-auth may only be given once")
     })
 
+    it("should reject --no-spec-auth with the invalid-mode error", async () => {
+      mockYargs({ "spec-auth": false })
+      const { loadConfig } = await import("../src/config")
+
+      expect(() => loadConfig()).toThrow(
+        "Invalid spec auth mode. Expected one of: same-origin, always, never",
+      )
+    })
+
     it("should reject an invalid spec auth mode", async () => {
       mockYargs({ "spec-auth": "sometimes" })
       const { loadConfig } = await import("../src/config")

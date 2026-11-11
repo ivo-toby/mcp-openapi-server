@@ -334,9 +334,13 @@ export function loadConfig(): OpenAPIMCPServerConfig {
   }
 
   const specAuthArg = argv["spec-auth"]
-  if (specAuthArg !== undefined && typeof specAuthArg !== "string") {
+  if (Array.isArray(specAuthArg)) {
     // yargs turns a repeated flag into an array; refuse instead of silently ignoring it
     throw new Error("--spec-auth may only be given once")
+  }
+  if (specAuthArg !== undefined && typeof specAuthArg !== "string") {
+    // e.g. --no-spec-auth, which yargs parses as boolean false
+    throw new Error("Invalid spec auth mode. Expected one of: same-origin, always, never")
   }
   const specAuthInput = specAuthArg || process.env.SPEC_AUTH
   let specAuth: SpecAuthMode | undefined
