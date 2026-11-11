@@ -615,6 +615,58 @@ describe("ApiClient Dynamic Meta-Tools", () => {
         })
       })
 
+      it("should keep an endpoint query string in the query for body methods", async () => {
+        await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+          endpoint: "/users/7/posts/99?dryRun=true",
+          method: "PUT",
+          params: { title: "n" },
+        })
+
+        expect(mockAxios.request).toHaveBeenCalledWith({
+          method: "put",
+          url: "/users/7/posts/99",
+          headers: { "Content-Type": "application/merge-patch+json" },
+          params: { dryRun: "true" },
+          data: { title: "n" },
+        })
+      })
+
+      it("should let explicit params override an endpoint query key for body methods", async () => {
+        await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+          endpoint: "/users/7/posts/99?title=fromQuery",
+          method: "PUT",
+          params: { title: "fromParams" },
+        })
+
+        expect(mockAxios.request).toHaveBeenCalledWith(
+          expect.objectContaining({ data: { title: "fromParams" } }),
+        )
+        expect(mockAxios.request.mock.calls[0][0].params).toBeUndefined()
+      })
+
+      it("should not treat Object.prototype members as supplied values", async () => {
+        await expect(
+          apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+            endpoint: "/users/{toString}",
+            method: "GET",
+          }),
+        ).rejects.toThrow("Missing required path parameter 'id'")
+
+        await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
+          endpoint: "/users/1?constructor=x&constructor=y",
+          method: "GET",
+        })
+        expect(mockAxios.request).toHaveBeenCalledWith(
+          expect.objectContaining({ params: { constructor: "x,y" } }),
+        )
+      })
+
+      it("should handle a non-string endpoint in the schema tool", async () => {
+        await expect(
+          apiClient.executeApiCall("GET-API-ENDPOINT-SCHEMA", { endpoint: 5 }),
+        ).rejects.toThrow("No endpoint found for path '5'")
+      })
+
       it("should drop a fragment from the endpoint", async () => {
         await apiClient.executeApiCall("INVOKE-API-ENDPOINT", {
           endpoint: "/users/123#frag",

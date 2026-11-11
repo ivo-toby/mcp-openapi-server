@@ -60,7 +60,7 @@ function splitEndpoint(endpoint: string): { path: string; query: Record<string, 
 
   const query: Record<string, any> = {}
   for (const [key, value] of new URLSearchParams(withoutFragment.slice(queryIndex + 1))) {
-    if (key in query) {
+    if (Object.hasOwn(query, key)) {
       query[key] = Array.isArray(query[key]) ? [...query[key], value] : [query[key], value]
     } else {
       query[key] = value
@@ -314,7 +314,7 @@ export class ApiClient {
   ): { url: string; remainingParams: Record<string, any> } {
     const remainingParams = { ...params }
     const url = path.replace(/\{([^}/]+)\}/g, (_placeholder, name: string) => {
-      const value = remainingParams[name]
+      const value = Object.hasOwn(remainingParams, name) ? remainingParams[name] : undefined
       if (value === undefined || value === null || value === "") {
         throw new Error(`Missing required path parameter '${name}' for endpoint '${path}'`)
       }
@@ -328,6 +328,9 @@ export class ApiClient {
   /**
    * Build the params for a request to a resolved endpoint: query string from the
    * endpoint, then caller params, then path values extracted from a concrete endpoint.
+   *
+   * Query string values may fill path placeholders; any that remain are sent as query
+   * parameters for every method (see `makeDirectHttpRequest`).
    */
   private buildEndpointParams(
     resolved: ResolvedEndpoint,
@@ -339,7 +342,11 @@ export class ApiClient {
     // Map placeholders the caller left in the endpoint under a different name
     // (e.g. `/users/{user_id}` for spec `/users/{id}`) onto the spec's name
     for (const [templateName, callerName] of Object.entries(resolved.placeholderNames)) {
-      if (callerName !== templateName && callerName in merged && !(templateName in merged)) {
+      if (
+        callerName !== templateName &&
+        Object.hasOwn(merged, callerName) &&
+        !Object.hasOwn(merged, templateName)
+      ) {
         merged[templateName] = merged[callerName]
         delete merged[callerName]
       }
@@ -751,7 +758,7 @@ export class ApiClient {
 
     // If we have the OpenAPI spec, use it to get detailed schema information
     if (this.openApiSpec) {
-      const resolved = this.resolveEndpoint(splitEndpoint(endpoint).path)
+      const resolved = this.resolveEndpoint(splitEndpoint(String(endpoint)).path)
       if (!resolved) {
         throw new Error(`No endpoint found for path '${endpoint}' in tool '${toolId}'`)
       }
@@ -826,6 +833,22 @@ export class ApiClient {
   }
 
   /**
+   * Keys whose value came from the endpoint's query string (not overridden by explicit
+   * params or path values), so they stay in the query string for body methods.
+   */
+  private endpointQueryKeys(
+    query: Record<string, any>,
+    endpointParams: Record<string, any>,
+    resolved: ResolvedEndpoint,
+  ): Set<string> {
+    return new Set(
+      Object.keys(query).filter(
+        (key) => !Object.hasOwn(endpointParams, key) && !Object.hasOwn(resolved.pathParams, key),
+      ),
+    )
+  }
+
+  /**
    * Handle the INVOKE-API-ENDPOINT meta-tool
    * Dynamically invokes an API endpoint with the provided parameters
    */
@@ -871,7 +894,12 @@ export class ApiClient {
         }
 
         // Make the HTTP request directly since we have the spec but not the tool
-        return this.makeDirectHttpRequest(method.toUpperCase(), resolved.path, mergedParams)
+        return this.makeDirectHttpRequest(
+          method.toUpperCase(),
+          resolved.path,
+          mergedParams,
+          this.endpointQueryKeys(query, endpointParams, resolved),
+        )
       }
 
       if (this.openApiSpec) {
@@ -891,7 +919,12 @@ export class ApiClient {
         for (const method of VALID_HTTP_METHODS) {
           const operation = (resolved.pathItem as any)[method]
           if (operation && !this.operationHasExcludedTag(operation)) {
-            return this.makeDirectHttpRequest(method.toUpperCase(), resolved.path, mergedParams)
+            return this.makeDirectHttpRequest(
+              method.toUpperCase(),
+              resolved.path,
+              mergedParams,
+              this.endpointQueryKeys(query, endpointParams, resolved),
+            )
           }
         }
         throw new Error(`No HTTP operations found for endpoint '${endpoint}' in tool '${toolId}'`)
@@ -912,11 +945,14 @@ export class ApiClient {
    * @param path - Spec path template; `{param}` placeholders are filled from params
    * @param params - Request parameters; path parameters are consumed, the rest go to
    *   the query string (GET-like) or request body
+   * @param queryKeys - Keys that came from the endpoint's query string; these always go
+   *   to the query string, also for body methods
    */
   private async makeDirectHttpRequest(
     method: string,
     path: string,
     allParams: Record<string, any>,
+    queryKeys: Set<string> = new Set(),
   ): Promise<any> {
     const { url, remainingParams: params } = this.interpolatePathParams(path, allParams)
 
@@ -935,8 +971,21 @@ export class ApiClient {
       // For GET-like methods, parameters go in the query string
       config.params = this.processQueryParams(params)
     } else {
-      // For POST-like methods, parameters go in the request body
-      config.data = params
+      // For POST-like methods, parameters go in the request body, except those the
+      // caller put in the endpoint's query string
+      const queryParams: Record<string, any> = {}
+      const bodyParams: Record<string, any> = {}
+      for (const [key, value] of Object.entries(params)) {
+        if (queryKeys.has(key)) {
+          queryParams[key] = value
+        } else {
+          bodyParams[key] = value
+        }
+      }
+      if (Object.keys(queryParams).length > 0) {
+        config.params = this.processQueryParams(queryParams)
+      }
+      config.data = bodyParams
       config.headers["Content-Type"] =
         this.getRequestContentType(method, path) || "application/json"
     }
