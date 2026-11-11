@@ -951,6 +951,33 @@ describe("OpenAPIServer", () => {
       )
     })
 
+    it("Issue #96: should pass the mTLS HTTPS agent to the spec loader", () => {
+      const mtlsConfig: OpenAPIMCPServerConfig = {
+        ...config,
+        apiBaseUrl: "https://localhost",
+        openApiSpec: "https://localhost/openapi",
+        specInputMethod: "url",
+        clientCertPath: "/certs/client.pem",
+        clientKeyPath: "/certs/client-key.pem",
+      }
+
+      vi.mocked(https.Agent).mockClear()
+      new OpenAPIServer(mtlsConfig)
+
+      expect(https.Agent).toHaveBeenCalledTimes(1)
+      const agent = vi.mocked(https.Agent).mock.results[0].value
+      expect(agent).toBeDefined()
+      expect(ToolsManager).toHaveBeenLastCalledWith(mtlsConfig, { httpsAgent: agent })
+      const apiClientOptions = vi.mocked(ApiClient).mock.lastCall?.[3]
+      expect(apiClientOptions?.httpsAgent).toBe(agent)
+    })
+
+    it("should not pass an HTTPS agent to the spec loader without TLS settings", () => {
+      new OpenAPIServer(config)
+
+      expect(ToolsManager).toHaveBeenLastCalledWith(config, { httpsAgent: undefined })
+    })
+
     it("should create an HTTPS agent when only TLS verification override is set", () => {
       const tlsConfig: OpenAPIMCPServerConfig = {
         ...config,

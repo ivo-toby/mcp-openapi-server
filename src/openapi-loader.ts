@@ -1,5 +1,7 @@
 import { OpenAPIV3 } from "openapi-types"
 import { readFile } from "fs/promises"
+import type { Agent as HttpsAgent } from "node:https"
+import axios from "axios"
 import { Tool } from "@modelcontextprotocol/sdk/types.js"
 import yaml, { CORE_SCHEMA } from "js-yaml"
 import crypto from "crypto"
@@ -29,6 +31,19 @@ export interface ExtendedTool extends Tool {
 export type SpecInputMethod = "url" | "file" | "stdin" | "inline"
 
 /**
+ * Options for the OpenAPI spec loader
+ */
+export interface OpenAPISpecLoaderOptions {
+  disableAbbreviation?: boolean
+  verbose?: boolean
+  /**
+   * HTTPS agent applied when loading the spec from an https:// URL, so specs served
+   * behind mTLS or a private CA can be fetched with the same TLS settings as API calls
+   */
+  httpsAgent?: HttpsAgent
+}
+
+/**
  * Class to load and parse OpenAPI specifications
  */
 export class OpenAPISpecLoader {
@@ -37,10 +52,16 @@ export class OpenAPISpecLoader {
    */
   private disableAbbreviation: boolean
   private logger: Logger
+  /**
+   * Optional HTTPS agent (mTLS client cert/key, custom CA, TLS verification settings)
+   * used when fetching the spec from an https:// URL
+   */
+  private httpsAgent?: HttpsAgent
 
-  constructor(config?: { disableAbbreviation?: boolean; verbose?: boolean }) {
+  constructor(config?: OpenAPISpecLoaderOptions) {
     this.disableAbbreviation = config?.disableAbbreviation ?? false
     this.logger = new Logger(config?.verbose ?? true)
+    this.httpsAgent = config?.httpsAgent
   }
 
   /**
@@ -87,11 +108,47 @@ export class OpenAPISpecLoader {
    * Load spec content from URL
    */
   private async loadFromUrl(url: string): Promise<string> {
+    if (this.httpsAgent && this.isHttpsUrl(url)) {
+      return await this.loadFromUrlWithAgent(url, this.httpsAgent)
+    }
+
     const response = await fetch(url)
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`)
     }
     return await response.text()
+  }
+
+  /**
+   * Load spec content from an https:// URL using a custom HTTPS agent.
+   * Node's built-in fetch cannot use a node:https Agent, so axios is used here
+   * (the same client and agent that ApiClient uses for API calls).
+   */
+  private async loadFromUrlWithAgent(url: string, httpsAgent: HttpsAgent): Promise<string> {
+    const response = await axios.get<string>(url, {
+      httpsAgent,
+      responseType: "text",
+      // Keep the raw body; parseSpecContent handles JSON and YAML itself
+      transformResponse: [(data) => data],
+      validateStatus: () => true,
+      timeout: 30000,
+      maxContentLength: 50 * 1024 * 1024,
+      maxRedirects: 5,
+    })
+
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+    }
+
+    return typeof response.data === "string" ? response.data : JSON.stringify(response.data)
+  }
+
+  private isHttpsUrl(url: string): boolean {
+    try {
+      return new URL(url).protocol === "https:"
+    } catch {
+      return false
+    }
   }
 
   /**
