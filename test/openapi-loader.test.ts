@@ -646,7 +646,7 @@ paths:
       expect(verify.name).toMatch(/^ticket-[0-9a-f]{4}$/)
     })
 
-    it("should produce names that are unique case-insensitively across the spec", () => {
+    it("should give unique names to several operations that collide after normalization", () => {
       const spec: OpenAPIV3.Document = {
         openapi: "3.0.3",
         info: { title: "t", version: "1" },
@@ -702,11 +702,18 @@ paths:
         },
       }
 
-      const names = Array.from(openAPILoader.parseOpenAPISpec(spec).values()).map((t) => t.name)
-      expect(new Set(names).size).toBe(2)
-      for (const name of names) {
+      const tools = openAPILoader.parseOpenAPISpec(spec)
+      const first = tools.get("GET::one")!.name
+      const second = tools.get("GET::two")!.name
+
+      // First keeps the (already hashed/truncated) base name unchanged
+      expect(first).toBe(openAPILoader.abbreviateOperationId(longId))
+      expect(second).not.toBe(first)
+      for (const name of [first, second]) {
         expect(name.length).toBeLessThanOrEqual(64)
+        expect(name).toMatch(/^[a-z0-9-]+$/)
       }
+      expect(second).toMatch(/-[0-9a-f]{4}$/)
     })
 
     it("should leave unique names untouched", () => {

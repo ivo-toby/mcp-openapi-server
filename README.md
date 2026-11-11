@@ -622,6 +622,8 @@ const config = {
 }
 ```
 
+Tool names are unique per server. If two operations reduce to the same name (e.g. no `operationId` and summaries that only differ in non-ASCII characters), the first one in spec order keeps the name and later ones get a short suffix derived from their method and path (e.g. `ticket` and `ticket-e181`). Because which operation keeps the bare name depends on spec order, prefer tool IDs (`METHOD::path`) in `includeTools` when names collide.
+
 ### Configuring Prompts and Resources
 
 Expose reusable prompts and static resources alongside your API tools:

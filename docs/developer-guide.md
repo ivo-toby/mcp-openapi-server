@@ -160,7 +160,11 @@ The abbreviation system follows a multi-step process:
 
 ### Name Uniqueness
 
-Different operations can reduce to the same tool name (for example, summaries that only differ in non-ASCII characters, which are sanitized away). `parseOpenAPISpec()` keeps names unique case-insensitively: the first operation keeps the base name, later ones get a 4-character suffix derived from the tool ID (`METHOD::path`), e.g. `ticket` and `ticket-e181`. Because the suffix comes from method + path, it stays stable when other operations are added to or reordered in the spec. If a suffixed name is itself already taken, a counter is appended (`ticket-e181-2`). Suffixed names still respect the 64-character limit.
+Different operations can reduce to the same tool name (for example, summaries that only differ in non-ASCII characters, which are sanitized away). `parseOpenAPISpec()` keeps names unique: the first operation in spec order keeps the base name, later ones get a 4-character suffix derived from the tool ID (`METHOD::path`), e.g. `ticket` and `ticket-e181`. If a suffixed name is itself already taken, a counter is appended (`ticket-e181-2`). Suffixed names still respect the 64-character limit.
+
+The suffix value is deterministic for a given method + path, but _which_ operation keeps the bare name depends on spec order. Reordering the spec, or adding a colliding operation earlier in it, can therefore swap names (and the `-N` counter form is order-dependent too). For stable references, for example in `includeTools`, use tool IDs (`METHOD::path`) or give operations explicit, distinct `operationId`s.
+
+Uniqueness is computed over the whole spec before filters are applied, so a tool's name does not change with filter configuration. A consequence is that an exposed tool can carry a suffix even when the operation holding the base name was filtered out, and `includeTools: ["ticket"]` selects only the operation that kept the bare name.
 
 ### Common Words Removed
 

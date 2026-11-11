@@ -705,9 +705,12 @@ export class OpenAPISpecLoader {
    * Make sure a generated tool name is unique within the server (Issue #103).
    *
    * Different operations can reduce to the same name (e.g. summaries that only differ
-   * in non-ASCII characters that get sanitized away). The first operation keeps the
-   * base name; later ones get a suffix derived from the tool ID (method + path), so the
-   * suffix is stable regardless of the order operations appear in the spec.
+   * in non-ASCII characters that get sanitized away). The first operation in spec order
+   * keeps the base name; later ones get a suffix derived from the tool ID (method + path).
+   *
+   * Note: only the suffix value is deterministic per method + path. Which operation keeps
+   * the bare name depends on spec order, so reordering or inserting colliding operations
+   * can change names. Tool IDs or explicit operationIds are the stable way to reference tools.
    */
   private ensureUniqueToolName(baseName: string, toolId: string, usedNames: Set<string>): string {
     const maxLength = this.disableAbbreviation ? Number.MAX_SAFE_INTEGER : 64
@@ -722,11 +725,11 @@ export class OpenAPISpecLoader {
 
     let candidate = baseName
     if (usedNames.has(candidate.toLowerCase())) {
-      const hash = this.generateShortHash(toolId, 8)
-      candidate = withSuffix(hash.substring(0, 4))
+      const hash = this.generateShortHash(toolId, 4)
+      candidate = withSuffix(hash)
       let counter = 2
       while (usedNames.has(candidate.toLowerCase())) {
-        candidate = withSuffix(`${hash.substring(0, 4)}-${counter++}`)
+        candidate = withSuffix(`${hash}-${counter++}`)
       }
       this.logger.warn(
         `Tool name "${baseName}" for ${toolId} is already in use; using "${candidate}" instead`,
