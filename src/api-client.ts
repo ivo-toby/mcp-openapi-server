@@ -362,17 +362,13 @@ export class ApiClient {
         }
       } else {
         // For POST-like methods, remaining parameters go in the request body
-        config.data = this.buildRequestBody(toolDef?.inputSchema as any, paramsCopy)
+        const inputSchema = toolDef?.inputSchema as Record<string, any> | undefined
 
         // Set Content-Type from OpenAPI spec metadata, defaulting to application/json
-        const contentType = (toolDef?.inputSchema as any)?.["x-content-type"] || "application/json"
+        const contentType = inputSchema?.["x-content-type"] || "application/json"
         config.headers["Content-Type"] = contentType
 
-        // A bare string body sent as JSON must be serialized explicitly; axios would
-        // otherwise send JSON-parseable strings (e.g. "123") unquoted
-        if (typeof config.data === "string" && /\bjson\b/i.test(contentType)) {
-          config.data = JSON.stringify(config.data)
-        }
+        config.data = this.buildRequestBody(inputSchema, paramsCopy, contentType)
       }
 
       // Execute the request
@@ -421,23 +417,41 @@ export class ApiClient {
   private buildRequestBody(
     inputSchema: Record<string, any> | undefined,
     params: Record<string, any>,
+    contentType: string,
   ): any {
     const wrapperKey = inputSchema?.["x-body-wrapper"]
     if (
       typeof wrapperKey === "string" &&
-      Object.prototype.hasOwnProperty.call(params, wrapperKey)
+      Object.prototype.hasOwnProperty.call(params, wrapperKey) &&
+      params[wrapperKey] !== undefined
     ) {
-      return params[wrapperKey]
+      const value = params[wrapperKey]
+      // Serialize bare values explicitly. axios only JSON-encodes non-objects for a literal
+      // "application/json" content type: it sends JSON-parseable strings (e.g. "123") unquoted,
+      // and throws on numbers/booleans for other types (e.g. application/vnd.api+json, text/plain).
+      if (/\bjson\b/i.test(contentType)) {
+        return JSON.stringify(value)
+      }
+      if (value === null || typeof value !== "object") {
+        return String(value)
+      }
+      return value
     }
 
     const propertyMap = inputSchema?.["x-body-property-map"] as Record<string, string> | undefined
     if (propertyMap && typeof propertyMap === "object") {
       const body: Record<string, any> = {}
+      // Unmapped keys first, then renamed body fields, so a renamed field always wins over
+      // a leftover argument with the same name (e.g. an unextracted cookie parameter)
       for (const [key, value] of Object.entries(params)) {
-        const originalName = Object.prototype.hasOwnProperty.call(propertyMap, key)
-          ? propertyMap[key]
-          : key
-        body[originalName] = value
+        if (!Object.prototype.hasOwnProperty.call(propertyMap, key)) {
+          body[key] = value
+        }
+      }
+      for (const [key, value] of Object.entries(params)) {
+        if (Object.prototype.hasOwnProperty.call(propertyMap, key)) {
+          body[propertyMap[key]] = value
+        }
       }
       return body
     }
