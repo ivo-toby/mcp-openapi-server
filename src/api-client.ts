@@ -802,7 +802,7 @@ export class ApiClient {
           operationInfo.bodyParameter = {
             name: "body",
             encoding: "base64",
-            note: 'Pass the request body base64-encoded as params.body; it is sent as raw bytes.',
+            note: "Pass the request body base64-encoded as params.body; it is sent as raw bytes.",
           }
         } else if (bodyEncoding === "wrapped") {
           operationInfo.bodyParameter = {
