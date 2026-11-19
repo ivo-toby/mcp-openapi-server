@@ -117,6 +117,8 @@ export class ApiClient {
       maxBodyLength: 50 * 1024 * 1024, // 50MB request body limit
       maxRedirects: 5, // Limit redirect chains to prevent abuse
       httpsAgent: options?.httpsAgent,
+      // Arrays as repeated keys (`a=1&a=2`), the OpenAPI default for query parameters
+      paramsSerializer: { indexes: null },
     })
 
     // Handle backward compatibility
@@ -710,9 +712,11 @@ export class ApiClient {
         headers: { ...authHeaders, ...headerParams },
       }
 
+      const unexploded = this.getUnexplodedQueryParams(method, originalPath || path)
+
       // Add query parameters if any exist
       if (Object.keys(queryParams).length > 0) {
-        config.params = this.processQueryParams(queryParams)
+        config.params = this.processQueryParams(queryParams, unexploded)
       }
 
       // Handle remaining parameters (body parameters) based on HTTP method
@@ -721,7 +725,7 @@ export class ApiClient {
         if (Object.keys(paramsCopy).length > 0) {
           config.params = {
             ...config.params,
-            ...this.processQueryParams(paramsCopy),
+            ...this.processQueryParams(paramsCopy, unexploded),
           }
         }
       } else {
@@ -848,18 +852,21 @@ export class ApiClient {
 
   /**
    * Process query parameters for GET requests
-   * Converts arrays to comma-separated strings
+   * Arrays stay arrays (sent as repeated keys), except for parameters declared with
+   * `explode: false`, which are joined with commas
    *
    * @param params - The original parameters
+   * @param unexploded - Names of parameters declared with `explode: false`
    * @returns Processed parameters
    */
   private processQueryParams(
     params: Record<string, any>,
-  ): Record<string, string | number | boolean> {
-    const result: Record<string, string | number | boolean> = {}
+    unexploded: Set<string> = new Set(),
+  ): Record<string, unknown> {
+    const result: Record<string, unknown> = {}
 
     for (const [key, value] of Object.entries(params)) {
-      if (Array.isArray(value)) {
+      if (Array.isArray(value) && unexploded.has(key)) {
         result[key] = value.join(",")
       } else {
         result[key] = value
@@ -867,6 +874,33 @@ export class ApiClient {
     }
 
     return result
+  }
+
+  /**
+   * Names of the query parameters a spec operation declares with `explode: false`
+   */
+  private getUnexplodedQueryParams(method: string, path: string): Set<string> {
+    const pathItem = this.openApiSpec?.paths[path] as any
+    const operation = pathItem?.[method.toLowerCase()]
+    // An operation's parameter replaces the path item's one with the same name and location
+    const params = new Map<string, any>()
+    for (const param of [...(pathItem?.parameters ?? []), ...(operation?.parameters ?? [])]) {
+      const ref =
+        typeof param?.$ref === "string"
+          ? param.$ref.match(/^#\/components\/parameters\/(.+)$/)
+          : null
+      const resolved = ref ? (this.openApiSpec?.components?.parameters?.[ref[1]] as any) : param
+      if (resolved?.name) {
+        params.set(`${resolved.name}::${resolved.in}`, resolved)
+      }
+    }
+    const names = new Set<string>()
+    for (const param of params.values()) {
+      if (param.in === "query" && param.explode === false) {
+        names.add(param.name)
+      }
+    }
+    return names
   }
 
   /**
@@ -1204,10 +1238,12 @@ export class ApiClient {
       headers: { ...authHeaders },
     }
 
+    const unexploded = this.getUnexplodedQueryParams(method, path)
+
     // Handle parameters based on HTTP method
     if (isGetLikeMethod(method)) {
       // For GET-like methods, parameters go in the query string
-      config.params = this.processQueryParams(params)
+      config.params = this.processQueryParams(params, unexploded)
     } else {
       // For POST-like methods, parameters go in the request body, except those the
       // caller put in the endpoint's query string
@@ -1221,7 +1257,7 @@ export class ApiClient {
         }
       }
       if (Object.keys(queryParams).length > 0) {
-        config.params = this.processQueryParams(queryParams)
+        config.params = this.processQueryParams(queryParams, unexploded)
       }
 
       const bodyInfo = this.getRequestBodyInfo(method, path)

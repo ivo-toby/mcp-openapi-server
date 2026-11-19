@@ -617,7 +617,7 @@ describe("ApiClient Dynamic Meta-Tools", () => {
           method: "get",
           url: "/users/123",
           headers: {},
-          params: { verbose: "false", tag: "a,b" },
+          params: { verbose: "false", tag: ["a", "b"] },
         })
       })
 
@@ -664,7 +664,7 @@ describe("ApiClient Dynamic Meta-Tools", () => {
           method: "GET",
         })
         expect(mockAxios.request).toHaveBeenCalledWith(
-          expect.objectContaining({ params: { constructor: "x,y" } }),
+          expect.objectContaining({ params: { constructor: ["x", "y"] } }),
         )
       })
 
@@ -2565,5 +2565,85 @@ describe("Issue #102: Request body reverses tool-schema renames", () => {
     )
     await client.executeApiCall("POST::obj", { body: "b", body_id: 1 })
     expect(getConfig().data).toEqual({ body: "b", body_id: 1 })
+  })
+})
+
+describe("Query array parameters", () => {
+  const spec = {
+    openapi: "3.0.0",
+    info: { title: "Test API", version: "1.0.0" },
+    paths: {
+      "/pets": {
+        parameters: [
+          { $ref: "#/components/parameters/Ids" },
+          { name: "tags", in: "query", explode: false, schema: { type: "array" } },
+        ],
+        get: {
+          parameters: [
+            { name: "tags", in: "query", schema: { type: "array", items: { type: "string" } } },
+          ],
+          responses: {},
+        },
+      },
+    },
+    components: {
+      parameters: {
+        Ids: {
+          name: "ids",
+          in: "query",
+          explode: false,
+          schema: { type: "array", items: { type: "string" } },
+        },
+      },
+    },
+  }
+  const petsTool = {
+    name: "list-pets",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        tags: { type: "array", "x-parameter-location": "query" },
+        ids: { type: "array", "x-parameter-location": "query" },
+      },
+    },
+    originalPath: "/pets",
+  } as any
+
+  const setup = (tools = true) => {
+    const client = new ApiClient("https://api.example.com", new StaticAuthProvider())
+    const request = vi.fn().mockResolvedValue({ data: {} })
+    ;(client as any).axiosInstance = Object.assign(request, { request })
+    client.setOpenApiSpec(spec as any)
+    if (tools) client.setTools(new Map([["GET::pets", petsTool]]))
+    return { client, request }
+  }
+
+  it("should keep arrays as repeated keys and join only explode: false parameters", async () => {
+    const { client, request } = setup()
+    await client.executeApiCall("GET::pets", { tags: ["dog", "cat"], ids: ["1", "2"] })
+    expect(request).toHaveBeenCalledWith(
+      expect.objectContaining({ params: { tags: ["dog", "cat"], ids: "1,2" } }),
+    )
+  })
+
+  it("should do the same for INVOKE-API-ENDPOINT without endpoint tools", async () => {
+    const { client, request } = setup(false)
+    await client.executeApiCall("INVOKE-API-ENDPOINT", {
+      endpoint: "/pets",
+      method: "GET",
+      params: { tags: ["dog", "cat"], ids: ["1", "2"] },
+    })
+    expect(request).toHaveBeenCalledWith(
+      expect.objectContaining({ params: { tags: ["dog", "cat"], ids: "1,2" } }),
+    )
+  })
+
+  it("should serialize arrays as repeated keys", () => {
+    const client = new ApiClient("https://api.example.com", new StaticAuthProvider())
+    const uri = (client as any).axiosInstance.getUri({
+      url: "pets",
+      params: { tags: ["dog", "cat"] },
+    })
+    expect(uri).toBe("https://api.example.com/pets?tags=dog&tags=cat")
   })
 })
